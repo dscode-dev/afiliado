@@ -1,0 +1,31 @@
+{
+  "name": "afiliado",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automacao de ofertas afiliadas do Mercado Livre - monorepo",
+  "workspaces": [
+    "apps/api",
+    "apps/admin"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,admin -c blue,magenta \"npm run dev:api\" \"npm run dev:admin\"",
+    "dev:api": "npm run dev -w @afiliado/api",
+    "dev:admin": "npm run dev -w @afiliado/admin",
+    "build": "npm run build -w @afiliado/api && npm run build -w @afiliado/admin",
+    "test": "npm run test -w @afiliado/api",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w @afiliado/api",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w @afiliado/api",
+    "db:generate": "npm run db:generate -w @afiliado/api",
+    "db:studio": "npm run db:studio -w @afiliado/api"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
