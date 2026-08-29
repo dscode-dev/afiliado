@@ -78,11 +78,13 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 
 ```text
 .
-├── docker-compose.yml           # apenas PostgreSQL
+├── docker-compose.yml           # postgres + migrate + api + admin
+├── .dockerignore
 ├── docker/postgres/init/        # cria o banco de testes no primeiro boot
 ├── .env.example                 # todas as variáveis, documentadas
 ├── apps/
 │   ├── api/                     # NestJS
+│   │   ├── Dockerfile           # multi-stage: deps -> build -> migrate/runtime
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma
 │   │   │   └── migrations/
@@ -103,6 +105,7 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 │   │   │       └── analytics/     # contadores do dashboard
 │   │   └── test/                # testes de integração
 │   └── admin/                   # Next.js
+│       ├── Dockerfile           # build -> standalone
 │       ├── app/                 # uma pasta por tela (page.tsx + actions.ts)
 │       ├── components/          # formulário genérico, ações de linha, helpers de UI
 │       └── lib/                 # cliente HTTP da API interna e tipos
@@ -124,6 +127,51 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 `content` continua sem existir como pasta: módulos nascem junto com o código que os justificam.
 
 ## Como subir localmente
+
+Há dois modos. Escolha um:
+
+| Modo | Quando usar | Comando |
+| ---- | ----------- | ------- |
+| **Só o banco** | Desenvolvimento: hot reload na API e no admin | `npm run db:up` + `npm run dev` |
+| **Stack completa** | Rodar tudo em containers, como em produção | `npm run stack:up` |
+
+### Stack completa em Docker
+
+```bash
+cp .env.example .env      # ajuste as credenciais que for usar
+npm run stack:up          # postgres + migrations + api + admin
+npm run stack:ps          # estado dos serviços
+npm run stack:logs        # logs da api e do admin
+npm run stack:down        # derruba tudo (o volume do banco é preservado)
+```
+
+Serviços:
+
+| Serviço | O que é | Porta |
+| ------- | ------- | ----- |
+| `postgres` | PostgreSQL 16 com healthcheck | `127.0.0.1:5432` |
+| `migrate` | One-shot: aplica `prisma migrate deploy` e encerra | — |
+| `api` | NestJS (imagem multi-stage, sem devDependencies) | `127.0.0.1:3333` |
+| `admin` | Next.js em modo `standalone` | `127.0.0.1:3000` |
+
+A ordem é garantida por dependências: `api` só sobe depois que `postgres` está *healthy* **e**
+`migrate` terminou com sucesso; `admin` só sobe depois que `api` está *healthy*. Isso elimina a
+corrida entre schema e aplicação.
+
+O admin fala com a API pela rede interna do compose (`http://api:3333`). Todas as chamadas são
+server-side (Server Components e Server Actions), então nada disso é resolvido pelo browser.
+
+> **Todas as portas são publicadas apenas em `127.0.0.1`.** Não existe autenticação ainda — a
+> stack não pode ficar acessível na rede. Ver *Dívidas conhecidas*.
+
+> **Não escale `api` para mais de uma réplica.** A trava do autopilot é em memória (ver
+> *Autopilot → Premissa: instância única*).
+
+Configuração: o compose lê o `.env` da raiz e repassa as variáveis para a `api`, com os mesmos
+defaults documentados em *Variáveis de ambiente* — inclusive `TELEGRAM_AUTO_PUBLISH_ENABLED=false`.
+O painel continua sem editar configuração.
+
+### Desenvolvimento com hot reload
 
 Pré-requisitos: **Node 20+** e **Docker**.
 
@@ -208,7 +256,9 @@ npm run db:studio          # inspeção visual do banco
 npm run db:down            # derruba o container
 ```
 
-Migrations em `apps/api/prisma/migrations/`:
+Migrations em `apps/api/prisma/migrations/`. **O nome da pasta define a ordem de aplicação**, e o
+prefixo precisa ser um timestamp UTC crescente — uma migration escrita à mão com horário local
+pode ordenar antes das anteriores e quebrar um banco criado do zero.
 
 1. `init_foundation` — tabelas, enums, foreign keys, índices e uniqueness.
 2. `money_integrity_constraints` — `CHECK` de valores monetários, escrita à mão (o Prisma não
@@ -1077,7 +1127,11 @@ Todos disponíveis na raiz do monorepo:
 | `npm run lint`             | ESLint na API e no admin                   |
 | `npm run typecheck`        | `tsc --noEmit` na API e no admin           |
 | `npm run build`            | Build de produção da API e do admin        |
-| `npm run db:up` / `db:down`| Sobe/derruba o PostgreSQL                  |
+| `npm run db:up` / `db:down`| Sobe/derruba apenas o PostgreSQL           |
+| `npm run stack:up`         | Sobe a stack completa em Docker            |
+| `npm run stack:down`       | Derruba a stack                            |
+| `npm run stack:logs`       | Segue os logs da api e do admin            |
+| `npm run stack:ps`         | Estado dos serviços                        |
 | `npm run db:migrate`       | Aplica migrations em desenvolvimento       |
 
 ## Segurança

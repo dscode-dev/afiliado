@@ -1,3 +1,15 @@
+# Stack completa: PostgreSQL + migrations + API + admin.
+#
+# Desenvolvimento local continua funcionando com apenas o banco:
+#   npm run db:up      (sobe somente o postgres)
+#   npm run dev        (API e admin fora do Docker, com hot reload)
+#
+# Stack inteira em containers:
+#   docker compose up -d --build
+#
+# PREMISSA (PR-05): instancia unica. A trava do autopilot e em memoria, entao
+# NAO escale `api` para mais de uma replica sem coordenacao distribuida.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,7 +20,8 @@ services:
       POSTGRES_PASSWORD: afiliado
       POSTGRES_DB: afiliado
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Loopback apenas, como os demais servicos.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - afiliado-pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -17,6 +30,106 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Servico one-shot: aplica as migrations e encerra. A API so sobe depois que
+  # este container termina com sucesso, evitando corrida entre schema e app.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrate
+    container_name: afiliado-migrate
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://afiliado:afiliado@postgres:5432/afiliado?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    container_name: afiliado-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      API_PORT: 3333
+      DATABASE_URL: postgresql://afiliado:afiliado@postgres:5432/afiliado?schema=public
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-log}
+
+      # Mercado Livre. Sem credenciais a API sobe e os endpoints de
+      # import/sync/highlights respondem 502.
+      MELI_CLIENT_ID: ${MELI_CLIENT_ID:-}
+      MELI_CLIENT_SECRET: ${MELI_CLIENT_SECRET:-}
+      MELI_REFRESH_TOKEN: ${MELI_REFRESH_TOKEN:-}
+      MELI_SITE_ID: ${MELI_SITE_ID:-MLB}
+      MELI_TIMEOUT_MS: ${MELI_TIMEOUT_MS:-10000}
+      MELI_SYNC_CONCURRENCY: ${MELI_SYNC_CONCURRENCY:-4}
+
+      # Opportunity Engine
+      OPPORTUNITY_APPROVED_THRESHOLD: ${OPPORTUNITY_APPROVED_THRESHOLD:-85}
+      OPPORTUNITY_CANDIDATE_THRESHOLD: ${OPPORTUNITY_CANDIDATE_THRESHOLD:-70}
+      OPPORTUNITY_COOLDOWN_HOURS: ${OPPORTUNITY_COOLDOWN_HOURS:-24}
+      OPPORTUNITY_HISTORY_WINDOW_DAYS: ${OPPORTUNITY_HISTORY_WINDOW_DAYS:-30}
+
+      # Telegram. O token e secret: vem do .env da raiz, nunca versionado.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_TIMEOUT_MS: ${TELEGRAM_TIMEOUT_MS:-15000}
+      TELEGRAM_MAX_RETRY_AFTER_SECONDS: ${TELEGRAM_MAX_RETRY_AFTER_SECONDS:-5}
+
+      # Autopilot. Continua OPT-IN: o default publica nada.
+      AUTOMATION_SCHEDULER_ENABLED: ${AUTOMATION_SCHEDULER_ENABLED:-true}
+      PRODUCT_REFRESH_INTERVAL_MINUTES: ${PRODUCT_REFRESH_INTERVAL_MINUTES:-60}
+      OPPORTUNITY_EVALUATION_INTERVAL_MINUTES: ${OPPORTUNITY_EVALUATION_INTERVAL_MINUTES:-30}
+      TELEGRAM_DISTRIBUTION_INTERVAL_MINUTES: ${TELEGRAM_DISTRIBUTION_INTERVAL_MINUTES:-15}
+      TELEGRAM_AUTO_PUBLISH_ENABLED: ${TELEGRAM_AUTO_PUBLISH_ENABLED:-false}
+      TELEGRAM_MAX_POSTS_PER_HOUR: ${TELEGRAM_MAX_POSTS_PER_HOUR:-2}
+      TELEGRAM_MAX_POSTS_PER_DAY: ${TELEGRAM_MAX_POSTS_PER_DAY:-12}
+      TELEGRAM_MIN_SCORE: ${TELEGRAM_MIN_SCORE:-85}
+      TELEGRAM_MAX_OFFER_AGE_HOURS: ${TELEGRAM_MAX_OFFER_AGE_HOURS:-24}
+      TELEGRAM_PUBLISH_START_HOUR: ${TELEGRAM_PUBLISH_START_HOUR:-7}
+      TELEGRAM_PUBLISH_END_HOUR: ${TELEGRAM_PUBLISH_END_HOUR:-22}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+    ports:
+      # Publicado apenas em loopback: nao ha autenticacao ainda.
+      - "127.0.0.1:${API_PORT:-3333}:3333"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3333/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    container_name: afiliado-admin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      # Server Components falam com a API pela rede interna do compose.
+      API_BASE_URL: http://api:3333
+    ports:
+      # Idem: sem autenticacao, o painel nao pode ficar exposto na rede.
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   afiliado-pgdata:

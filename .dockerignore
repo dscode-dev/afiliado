@@ -1,0 +1,22 @@
+# Contexto de build: apenas fonte. Dependencias e artefatos sao gerados no build.
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+coverage
+**/coverage
+*.tsbuildinfo
+
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+README.md
+docker-compose.yml
+.dockerignore
+**/*.log
+.DS_Store

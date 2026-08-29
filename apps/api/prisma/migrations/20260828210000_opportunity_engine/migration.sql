@@ -1,5 +1,9 @@
 -- PR-03: Opportunity Engine.
 --
+-- O nome desta pasta define a ORDEM de aplicacao. Ela precisa vir depois das
+-- migrations do PR-01/PR-02 (que criam `products`, `affiliate_links` e
+-- `offers`) e antes da do PR-04.
+--
 -- `offers(productId, price)` UNIQUE define a identidade de uma oportunidade e
 -- garante no banco a idempotencia da geracao automatica de ofertas.
 -- `opportunity_evaluations` guarda uma linha por produto (estado atual da
