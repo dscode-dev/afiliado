@@ -1,70 +1,111 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { ChannelType, Prisma, PublicationStatus } from '@prisma/client';
+import { Channel, ChannelType, Prisma, PublicationStatus } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { isPublishable, resolveEffectiveStatus } from '../../opportunity/effective-status';
 import { Breakdown } from '../../opportunity/scoring/evaluator';
+import { OfferHighlights } from '../telegram/message.renderer';
 import { PublicationView, toPublicationView } from '../publication.entity';
-import { SentMessage, TelegramClient } from './telegram.client';
-import { TelegramError } from './telegram.errors';
-import { OfferHighlights, renderOfferMessage } from './message.renderer';
+import {
+  CHANNEL_PUBLISHERS,
+  ChannelPublisher,
+  DestinationCheck,
+  OfferContent,
+} from './channel-publisher';
 
 export interface PublishResult {
   publication: PublicationView;
   /** Falso quando a Offer ja estava publicada neste canal (nada foi enviado). */
   delivered: boolean;
   usedPhoto: boolean;
+  provider: ChannelType;
+}
+
+export interface PublishAllReport {
+  total: number;
+  published: number;
+  skipped: number;
+  failed: number;
+  results: {
+    channelId: string;
+    channelName: string;
+    provider: ChannelType;
+    status: string;
+    error?: string;
+  }[];
 }
 
 /** priceHistory >= este valor significa "no piso ou praticamente no piso". */
 const NEAR_LOWEST_THRESHOLD = 22;
 
+/**
+ * Orquestracao comum a todos os destinos de publicacao.
+ *
+ * Valida a oferta, reserva a Publication, delega a entrega ao publisher do
+ * canal e registra o resultado. Adicionar um provider novo significa apenas
+ * implementar `ChannelPublisher` - nada aqui muda.
+ */
 @Injectable()
-export class TelegramPublisherService {
-  private readonly logger = new Logger(TelegramPublisherService.name);
+export class PublicationDispatcher {
+  private readonly logger = new Logger(PublicationDispatcher.name);
+  private readonly publishers: Map<ChannelType, ChannelPublisher>;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly telegram: TelegramClient,
-  ) {}
+    @Inject(CHANNEL_PUBLISHERS) publishers: ChannelPublisher[],
+  ) {
+    this.publishers = new Map(publishers.map((publisher) => [publisher.type, publisher]));
+  }
+
+  /** Tipos de canal com publisher automatizado registrado. */
+  get supportedTypes(): ChannelType[] {
+    return [...this.publishers.keys()];
+  }
+
+  /** Publisher do tipo, quando existe automacao oficial para ele. */
+  publisherFor(type: ChannelType): ChannelPublisher | undefined {
+    return this.publishers.get(type);
+  }
 
   /**
-   * Publica uma Offer em um canal do Telegram.
+   * Valida a oferta e monta o conteudo, sem exigir publisher.
+   *
+   * Compartilhado com o fluxo manual (WhatsApp): as regras de elegibilidade
+   * - AffiliateLink ativo e effectiveStatus APPROVED - sao exatamente as
+   * mesmas, e nao podem divergir entre automatico e manual.
+   */
+  async prepareContent(
+    offerId: string,
+    channelId: string,
+  ): Promise<{ channel: Channel; content: OfferContent }> {
+    const { channel, content } = await this.loadAndValidate(offerId, channelId);
+
+    return { channel, content };
+  }
+
+  /**
+   * Publica uma Offer em um canal.
    *
    * Idempotente por `(offerId, channelId)`: a reserva da Publication e um
    * INSERT protegido por UNIQUE, entao chamadas concorrentes resultam em no
-   * maximo uma chamada externa.
+   * maximo uma entrega externa.
    */
   async publish(offerId: string, channelId: string): Promise<PublishResult> {
-    const { offer, channel, affiliateUrl, highlights } = await this.loadAndValidate(
-      offerId,
-      channelId,
-    );
-
+    const { channel, content } = await this.loadAndValidate(offerId, channelId);
+    const publisher = this.assertAutomatedChannel(channel);
     const publication = await this.reserve(offerId, channelId);
 
-    const text = renderOfferMessage({
-      title: offer.product.title,
-      price: offer.price,
-      originalPrice: offer.originalPrice,
-      discountPercentage: offer.discountPercentage,
-      affiliateUrl,
-      highlights,
-    });
-
-    const destination = channel.externalIdentifier as string;
-    let sent: SentMessage;
-    let usedPhoto = false;
-
+    let delivery;
     try {
-      ({ sent, usedPhoto } = await this.deliver(destination, offer.product.imageUrl, text));
+      delivery = await publisher.deliver(channel.externalIdentifier as string, content);
     } catch (error) {
-      await this.markFailed(publication.id, error);
+      await this.markFailed(publication.id, channel.type, error);
       throw error;
     }
 
@@ -72,7 +113,7 @@ export class TelegramPublisherService {
       where: { id: publication.id },
       data: {
         status: PublicationStatus.PUBLISHED,
-        externalMessageId: sent.messageId,
+        externalMessageId: delivery.externalId,
         publishedAt: new Date(),
         errorMessage: null,
       },
@@ -81,39 +122,43 @@ export class TelegramPublisherService {
 
     this.logger.log(
       JSON.stringify({
-        provider: 'telegram',
+        provider: channel.type.toLowerCase(),
         operation: 'publish',
         offerId,
         channelId,
-        usedPhoto,
-        externalMessageId: sent.messageId,
+        usedImage: delivery.usedImage,
+        externalMessageId: delivery.externalId,
       }),
     );
 
-    return { publication: toPublicationView(published), delivered: true, usedPhoto };
+    return {
+      publication: toPublicationView(published),
+      delivered: true,
+      usedPhoto: delivery.usedImage,
+      provider: channel.type,
+    };
   }
 
-  /** Publica em todos os canais Telegram ativos. Uma falha nao aborta as demais. */
-  async publishToAllTelegramChannels(offerId: string): Promise<{
-    total: number;
-    published: number;
-    skipped: number;
-    failed: number;
-    results: { channelId: string; channelName: string; status: string; error?: string }[];
-  }> {
+  /** Publica em todos os canais ativos com provider suportado. */
+  async publishToAllActiveChannels(offerId: string): Promise<PublishAllReport> {
     const channels = await this.prisma.channel.findMany({
-      where: { type: ChannelType.TELEGRAM, active: true, externalIdentifier: { not: null } },
-      orderBy: { createdAt: 'asc' },
+      where: {
+        type: { in: this.supportedTypes },
+        active: true,
+        externalIdentifier: { not: null },
+      },
+      orderBy: [{ type: 'asc' }, { createdAt: 'asc' }],
     });
 
-    const report = {
+    const report: PublishAllReport = {
       total: channels.length,
       published: 0,
       skipped: 0,
       failed: 0,
-      results: [] as { channelId: string; channelName: string; status: string; error?: string }[],
+      results: [],
     };
 
+    // Sequencial: volume baixo, e uma falha nao pode contaminar os demais.
     for (const channel of channels) {
       try {
         const result = await this.publish(offerId, channel.id);
@@ -124,13 +169,15 @@ export class TelegramPublisherService {
         report.results.push({
           channelId: channel.id,
           channelName: channel.name,
-          status: result.delivered ? 'PUBLISHED' : 'ALREADY_PUBLISHED',
+          provider: channel.type,
+          status: 'PUBLISHED',
         });
       } catch (error) {
         report.failed += 1;
         report.results.push({
           channelId: channel.id,
           channelName: channel.name,
+          provider: channel.type,
           status: 'FAILED',
           error: error instanceof Error ? error.message : 'Erro inesperado',
         });
@@ -141,10 +188,9 @@ export class TelegramPublisherService {
   }
 
   /**
-   * Reprocessa uma Publication FAILED, reaproveitando o mesmo registro.
-   *
-   * Reusar a linha (em vez de criar outra) mantem a constraint
-   * `(offerId, channelId)` valida e preserva o historico da tentativa.
+   * Reprocessa uma Publication FAILED, reaproveitando o mesmo registro -
+   * o que mantem a constraint valida e preserva o historico da tentativa.
+   * Funciona para qualquer provider, conforme o Channel da publicacao.
    */
   async retry(publicationId: string): Promise<PublishResult> {
     const publication = await this.prisma.publication.findUnique({
@@ -161,7 +207,6 @@ export class TelegramPublisherService {
       );
     }
 
-    // Volta para PENDING antes de tentar de novo, para que o estado nunca minta.
     await this.prisma.publication.update({
       where: { id: publicationId },
       data: { status: PublicationStatus.PENDING, errorMessage: null },
@@ -170,56 +215,23 @@ export class TelegramPublisherService {
     return this.publish(publication.offerId, publication.channelId);
   }
 
-  /** Valida o canal sem publicar nada - a acao "Testar canal" nao gera spam. */
-  async testChannel(channelId: string): Promise<{ ok: true; chat: { id: string; title: string | null } }> {
+  /** Valida o canal sem publicar nada. */
+  async testChannel(
+    channelId: string,
+  ): Promise<{ ok: true; provider: ChannelType; destination: DestinationCheck }> {
     const channel = await this.prisma.channel.findUnique({ where: { id: channelId } });
 
     if (!channel) throw new NotFoundException(`Canal ${channelId} nao encontrado`);
 
-    this.assertTelegramChannel(channel);
+    const publisher = this.assertAutomatedChannel(channel);
+    const destination = await publisher.validateDestination(
+      channel.externalIdentifier as string,
+    );
 
-    const chat = await this.telegram.getChat(channel.externalIdentifier as string);
-
-    return { ok: true, chat: { id: chat.id, title: chat.title } };
+    return { ok: true, provider: channel.type, destination };
   }
 
-  /**
-   * Tenta com imagem e cai para texto apenas quando a falha e atribuivel a
-   * midia. Qualquer outro erro sobe sem mascarar.
-   */
-  private async deliver(
-    destination: string,
-    imageUrl: string | null,
-    text: string,
-  ): Promise<{ sent: SentMessage; usedPhoto: boolean }> {
-    if (!imageUrl) {
-      return { sent: await this.telegram.sendMessage(destination, text), usedPhoto: false };
-    }
-
-    try {
-      return { sent: await this.telegram.sendPhoto(destination, imageUrl, text), usedPhoto: true };
-    } catch (error) {
-      if (!(error instanceof TelegramError) || error.failure !== 'invalid_media') {
-        throw error;
-      }
-
-      this.logger.warn(
-        JSON.stringify({ provider: 'telegram', operation: 'publish', fallback: 'send_message' }),
-      );
-
-      return { sent: await this.telegram.sendMessage(destination, text), usedPhoto: false };
-    }
-  }
-
-  /**
-   * Reserva a Publication. O UNIQUE `(offerId, channelId)` faz o trabalho
-   * pesado: dois chamadores simultaneos disputam o mesmo INSERT e apenas um
-   * segue para o Telegram.
-   */
-  private async reserve(
-    offerId: string,
-    channelId: string,
-  ): Promise<{ id: string }> {
+  private async reserve(offerId: string, channelId: string): Promise<{ id: string }> {
     const existing = await this.prisma.publication.findUnique({
       where: { offerId_channelId: { offerId, channelId } },
     });
@@ -243,10 +255,7 @@ export class TelegramPublisherService {
       });
     } catch (error) {
       // Corrida perdida: outro chamador reservou primeiro.
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Esta oferta ja esta sendo publicada neste canal');
       }
 
@@ -254,19 +263,31 @@ export class TelegramPublisherService {
     }
   }
 
-  /** Mensagem de erro sanitizada: nunca token, nunca corpo bruto do Telegram. */
-  private async markFailed(publicationId: string, error: unknown): Promise<void> {
+  /** Mensagem sanitizada: nunca token, nunca corpo bruto do provider. */
+  private async markFailed(
+    publicationId: string,
+    type: ChannelType,
+    error: unknown,
+  ): Promise<void> {
+    const failure = (error as { failure?: string }).failure;
     const message =
-      error instanceof TelegramError
-        ? `${error.failure}: ${error.message}`
-        : 'Erro inesperado ao publicar';
+      failure && error instanceof Error
+        ? `${failure}: ${error.message}`
+        : error instanceof Error
+          ? error.message
+          : 'Erro inesperado ao publicar';
+
+    this.logger.error(
+      JSON.stringify({
+        provider: type.toLowerCase(),
+        operation: 'publish',
+        failure: failure ?? 'unexpected_error',
+      }),
+    );
 
     await this.prisma.publication.update({
       where: { id: publicationId },
-      data: {
-        status: PublicationStatus.FAILED,
-        errorMessage: message.slice(0, 1000),
-      },
+      data: { status: PublicationStatus.FAILED, errorMessage: message.slice(0, 1000) },
     });
   }
 
@@ -289,7 +310,7 @@ export class TelegramPublisherService {
 
     if (!channel) throw new NotFoundException(`Canal ${channelId} nao encontrado`);
 
-    this.assertTelegramChannel(channel);
+    this.assertChannelUsable(channel);
 
     // Regra absoluta: sem link afiliado ativo nao existe publicacao.
     const link = offer.product.affiliateLinks[0];
@@ -314,32 +335,48 @@ export class TelegramPublisherService {
       );
     }
 
-    return {
-      offer,
-      channel,
+    const content: OfferContent = {
+      title: offer.product.title,
+      price: offer.price,
+      originalPrice: offer.originalPrice,
+      discountPercentage: offer.discountPercentage,
       affiliateUrl: link.url,
+      imageUrl: offer.product.imageUrl,
       highlights: toHighlights(evaluation.breakdown),
     };
+
+    return { offer, channel, content };
   }
 
-  private assertTelegramChannel(channel: {
-    type: ChannelType;
-    active: boolean;
-    externalIdentifier: string | null;
-  }): void {
-    if (channel.type !== ChannelType.TELEGRAM) {
-      throw new UnprocessableEntityException(
-        `Canal do tipo ${channel.type} nao e suportado nesta versao`,
-      );
-    }
+  /** Regra valida para qualquer canal, automatizado ou manual. */
+  private assertChannelUsable(channel: Channel): void {
     if (!channel.active) {
       throw new UnprocessableEntityException('Canal inativo');
     }
-    if (!channel.externalIdentifier) {
+  }
+
+  /**
+   * Exige automacao oficial para o tipo do canal. O WhatsApp nao passa por
+   * aqui: nao ha API oficial de Canais, entao ele usa o fluxo manual.
+   */
+  private assertAutomatedChannel(channel: Channel): ChannelPublisher {
+    const publisher = this.publishers.get(channel.type);
+
+    if (!publisher) {
       throw new UnprocessableEntityException(
-        'Canal sem externalIdentifier (ex.: @meu_canal)',
+        `Canal do tipo ${channel.type} nao possui publicacao automatica nesta versao`,
       );
     }
+
+    this.assertChannelUsable(channel);
+
+    if (!channel.externalIdentifier) {
+      throw new UnprocessableEntityException(
+        'Canal sem externalIdentifier (ex.: @meu_canal no Telegram, Page ID no Facebook)',
+      );
+    }
+
+    return publisher;
   }
 }
 

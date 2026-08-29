@@ -290,17 +290,14 @@ describe('Falhas, idempotencia e reenvio', () => {
     });
   });
 
-  describe('publicacao em todos os canais Telegram ativos', () => {
-    it('publica nos ativos e ignora inativos e nao-Telegram', async () => {
+  describe('publicacao em todos os canais ativos', () => {
+    it('publica nos canais Telegram ativos e ignora os inativos', async () => {
       const { offer, channel } = await seed(null);
       await prisma.channel.create({
         data: { type: 'TELEGRAM', name: 'Segundo', externalIdentifier: '@dois' },
       });
       await prisma.channel.create({
         data: { type: 'TELEGRAM', name: 'Inativo', externalIdentifier: '@tres', active: false },
-      });
-      await prisma.channel.create({
-        data: { type: 'FACEBOOK', name: 'Pagina', externalIdentifier: 'pagina' },
       });
 
       const response = await request(app.getHttpServer())
@@ -342,7 +339,8 @@ describe('Falhas, idempotencia e reenvio', () => {
         .expect(200);
 
       expect(response.body).toMatchObject({ ok: true });
-      expect(response.body.chat.title).toBe('Ofertas Brasil');
+      expect(response.body.provider).toBe('TELEGRAM');
+      expect(response.body.destination.name).toBe('Ofertas Brasil');
       expect(telegram.callsTo('getChat')).toHaveLength(1);
       expect(telegram.callsTo('sendMessage')).toHaveLength(0);
       expect(telegram.callsTo('sendPhoto')).toHaveLength(0);

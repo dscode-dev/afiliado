@@ -17,9 +17,14 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <header>
-        <h2>Dashboard</h2>
-        <p>Contadores da fundacao. Deteccao automatica e publicacao chegam nos proximos PRs.</p>
+      <header className="dashboard-header">
+        {/* Logo original, sem alteracao. `height: auto` preserva a proporcao. */}
+        <img className="dashboard-logo" src="/assets/logo.png" alt="Garimpo" />
+        <div>
+          {/* A logo ja e o wordmark: repetir "Garimpo" em texto seria redundante. */}
+          <h2 className="visually-hidden">Garimpo</h2>
+          <p>Inteligencia e distribuicao automatizada de boas oportunidades de compra.</p>
+        </div>
       </header>
 
       <div className="metrics">

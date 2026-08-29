@@ -507,12 +507,26 @@ describe('Automation loop', () => {
         running: false,
         runningPhase: null,
       });
+      // Cada destino aparece com seu proprio estado e limites.
+      expect(response.body.providers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            provider: 'TELEGRAM',
+            autopilotEnabled: true,
+            minScore: 85,
+            maxPostsPerHour: 2,
+          }),
+          expect.objectContaining({
+            provider: 'FACEBOOK',
+            autopilotEnabled: false,
+            maxPostsPerHour: 1,
+            maxPostsPerDay: 6,
+          }),
+        ]),
+      );
       expect(response.body.lastRunAt).toEqual(expect.any(String));
       expect(response.body.lastResult.phases).toContain('distribution');
       expect(response.body.limits).toMatchObject({
-        minScore: 85,
-        maxPostsPerHour: 2,
-        maxPostsPerDay: 12,
         maxOfferAgeHours: 24,
         timezone: 'America/Sao_Paulo',
         withinPublishWindow: true,

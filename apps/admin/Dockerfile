@@ -25,6 +25,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # `standalone` ja traz o node_modules minimo necessario.
 COPY --from=build /app/apps/admin/.next/standalone ./
 COPY --from=build /app/apps/admin/.next/static ./apps/admin/.next/static
+# Assets estaticos servidos em /assets (logo do Garimpo).
+COPY --from=build /app/apps/admin/public ./apps/admin/public
 
 USER node
 EXPOSE 3000

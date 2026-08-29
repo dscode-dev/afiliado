@@ -38,3 +38,11 @@ process.env.TELEGRAM_MAX_RETRY_AFTER_SECONDS = '2';
 process.env.AUTOMATION_SCHEDULER_ENABLED = 'false';
 process.env.TELEGRAM_AUTO_PUBLISH_ENABLED = 'false';
 process.env.APP_TIMEZONE = 'America/Sao_Paulo';
+
+// A suite nunca fala com a Meta real: `FacebookFakeServer` sobrescreve
+// META_API_BASE_URL por teste. O token aqui e fabricado de proposito.
+process.env.META_APP_ID = 'test-app-id';
+process.env.META_APP_SECRET = 'test-app-secret';
+process.env.META_PAGE_ACCESS_TOKEN = 'EAA-TEST-PAGE-TOKEN-NAO-REAL';
+process.env.META_TIMEOUT_MS = '500';
+process.env.FACEBOOK_AUTO_PUBLISH_ENABLED = 'false';

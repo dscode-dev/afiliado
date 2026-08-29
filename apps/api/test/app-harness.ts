@@ -23,6 +23,11 @@ export function useFakeTelegram(baseUrl: string): void {
   process.env.TELEGRAM_API_BASE_URL = baseUrl;
 }
 
+/** Idem para a Graph API da Meta. */
+export function useFakeFacebook(baseUrl: string): void {
+  process.env.META_API_BASE_URL = baseUrl;
+}
+
 /**
  * Sobe a aplicacao real (mesmos pipes, filtros e modulos do servidor HTTP)
  * apontando para o banco de testes.

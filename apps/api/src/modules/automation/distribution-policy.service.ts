@@ -16,6 +16,7 @@ export interface DistributionCandidate {
 export interface ChannelQuota {
   channelId: string;
   channelName: string;
+  type: ChannelType;
   /** Quantas publicacoes ainda cabem agora, considerando hora e dia. */
   remaining: number;
   publishedLastHour: number;
@@ -52,7 +53,8 @@ export class DistributionPolicyService {
 
     const evaluations = await this.prisma.opportunityEvaluation.findMany({
       where: {
-        score: { gte: this.config.minScore },
+        // Filtro amplo: o score minimo fino e por provider, aplicado por canal.
+        score: { gte: this.config.selectionMinScore },
         // NOT_ELIGIBLE nunca e publicavel; os demais dependem da decisao humana.
         status: { not: OpportunityStatus.NOT_ELIGIBLE },
       },
@@ -96,24 +98,39 @@ export class DistributionPolicyService {
     );
   }
 
-  /** Canais Telegram ativos e prontos para receber publicacao. */
-  async activeTelegramChannels() {
+  /**
+   * Canais ativos, prontos para publicar, dos tipos suportados e com
+   * publicacao automatica habilitada.
+   */
+  async activePublishableChannels(supportedTypes: ChannelType[]) {
+    const enabled = supportedTypes.filter((type) => this.config.policyFor(type).enabled);
+
+    if (enabled.length === 0) return [];
+
     return this.prisma.channel.findMany({
       where: {
-        type: ChannelType.TELEGRAM,
+        type: { in: enabled },
         active: true,
         externalIdentifier: { not: null },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ type: 'asc' }, { createdAt: 'asc' }],
     });
   }
 
   /**
-   * Quanto ainda cabe neste canal. Conta apenas publicacoes bem-sucedidas:
-   * uma tentativa que falhou nao consome cota.
+   * Quanto ainda cabe neste canal, pelos limites do provider dele.
+   *
+   * Conta apenas publicacoes bem-sucedidas: uma tentativa que falhou nao
+   * consome cota. Limites sao por canal, entao Telegram e Facebook nunca
+   * disputam a mesma quota.
    */
-  async quotaFor(channelId: string, channelName: string): Promise<ChannelQuota> {
+  async quotaFor(
+    channelId: string,
+    channelName: string,
+    type: ChannelType,
+  ): Promise<ChannelQuota> {
     const now = this.clock.now();
+    const policy = this.config.policyFor(type);
 
     const [publishedLastHour, publishedLastDay] = await Promise.all([
       this.prisma.publication.count({
@@ -135,12 +152,12 @@ export class DistributionPolicyService {
     const remaining = Math.max(
       0,
       Math.min(
-        this.config.maxPostsPerHour - publishedLastHour,
-        this.config.maxPostsPerDay - publishedLastDay,
+        policy.maxPostsPerHour - publishedLastHour,
+        policy.maxPostsPerDay - publishedLastDay,
       ),
     );
 
-    return { channelId, channelName, remaining, publishedLastHour, publishedLastDay };
+    return { channelId, channelName, type, remaining, publishedLastHour, publishedLastDay };
   }
 
   /** Ofertas ja publicadas neste canal - ficam de fora da selecao. */

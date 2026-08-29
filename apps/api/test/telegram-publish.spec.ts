@@ -13,7 +13,7 @@ interface Scenario {
   operatorDecision?: 'APPROVED' | 'REJECTED' | null;
   engineStatus?: 'APPROVED' | 'CANDIDATE' | 'IGNORE' | 'NOT_ELIGIBLE';
   channelActive?: boolean;
-  channelType?: 'TELEGRAM' | 'FACEBOOK';
+  channelType?: 'TELEGRAM' | 'FACEBOOK' | 'WHATSAPP';
   externalIdentifier?: string | null;
 }
 
@@ -206,13 +206,21 @@ describe('Publicacao no Telegram', () => {
       expect(telegram.callsTo('sendPhoto')).toHaveLength(1);
     });
 
-    it('recusa canal inativo e canal que nao e Telegram', async () => {
+    it('recusa canal inativo', async () => {
       const inactive = await seed({ channelActive: false });
+
       await publish(inactive.offer.id, inactive.channel.id).expect(422);
 
-      const facebook = await seed({ channelType: 'FACEBOOK' });
-      await publish(facebook.offer.id, facebook.channel.id).expect(422);
+      expect(telegram.calls).toHaveLength(0);
+    });
 
+    it('recusa canal de tipo sem publisher registrado', async () => {
+      // WHATSAPP existe no enum, mas nao tem integracao nesta versao.
+      const whatsapp = await seed({ channelType: 'WHATSAPP' });
+
+      const response = await publish(whatsapp.offer.id, whatsapp.channel.id).expect(422);
+
+      expect(response.body.message).toContain('WHATSAPP');
       expect(telegram.calls).toHaveLength(0);
     });
 

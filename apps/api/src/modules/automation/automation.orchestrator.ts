@@ -2,7 +2,7 @@ import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PopularityService } from '../catalog/popularity.service';
 import { ProductSyncService } from '../catalog/product-sync.service';
 import { OpportunityService } from '../opportunity/opportunity.service';
-import { TelegramPublisherService } from '../distribution/telegram/telegram-publisher.service';
+import { PublicationDispatcher } from '../distribution/publish/publication-dispatcher.service';
 import { AutomationConfig } from './automation.config';
 import { AutomationState } from './automation.state';
 import { Clock } from './clock';
@@ -35,7 +35,7 @@ export class AutomationOrchestrator {
     private readonly popularity: PopularityService,
     private readonly opportunities: OpportunityService,
     private readonly policy: DistributionPolicyService,
-    private readonly publisher: TelegramPublisherService,
+    private readonly publisher: PublicationDispatcher,
   ) {}
 
   /** Ciclo completo: usado pelo `POST /automation/run`. */
@@ -252,16 +252,19 @@ export class AutomationOrchestrator {
       failures: [],
     };
 
-    const candidates = await this.policy.selectCandidates();
-    summary.eligible = candidates.length;
-
-    // Autopilot desligado: o ciclo continua, so a publicacao fica pausada.
-    if (!this.config.autoPublishEnabled) {
+    // Autopilot desligado em todos os destinos: o ciclo continua sincronizando
+    // e avaliando, so a publicacao fica pausada.
+    if (!this.config.anyAutoPublishEnabled) {
+      const candidates = await this.policy.selectCandidates();
+      summary.eligible = candidates.length;
       summary.deferred = candidates.length;
       summary.deferredReason = 'autopilot_disabled';
       this.logDistribution(summary);
       return summary;
     }
+
+    const candidates = await this.policy.selectCandidates();
+    summary.eligible = candidates.length;
 
     if (!this.config.isWithinPublishWindow(this.clock.now())) {
       summary.deferred = candidates.length;
@@ -270,16 +273,22 @@ export class AutomationOrchestrator {
       return summary;
     }
 
-    const channels = await this.policy.activeTelegramChannels();
+    const channels = await this.policy.activePublishableChannels(this.publisher.supportedTypes);
 
+    // Um canal por vez, sequencialmente. A falha de um provider nao impede os
+    // demais: Facebook fora do ar nao pode parar o Telegram.
     for (const channel of channels) {
-      const quota = await this.policy.quotaFor(channel.id, channel.name);
+      const minScore = this.config.policyFor(channel.type).minScore;
+      const quota = await this.policy.quotaFor(channel.id, channel.name, channel.type);
       const alreadyPublished = await this.policy.alreadyPublishedOfferIds(
         channel.id,
         candidates.map((candidate) => candidate.offerId),
       );
 
-      const pending = candidates.filter((candidate) => !alreadyPublished.has(candidate.offerId));
+      const pending = candidates.filter(
+        (candidate) =>
+          candidate.score >= minScore && !alreadyPublished.has(candidate.offerId),
+      );
       let published = 0;
 
       for (const candidate of pending) {
@@ -294,11 +303,11 @@ export class AutomationOrchestrator {
           published += 1;
           summary.published += 1;
         } catch (error) {
-          // Uma publicacao com problema nao impede as demais.
           summary.publishFailed += 1;
           summary.failures.push({
             offerId: candidate.offerId,
             channelId: channel.id,
+            provider: channel.type,
             reason: error instanceof Error ? error.message : 'Erro inesperado',
           });
         }
@@ -307,6 +316,7 @@ export class AutomationOrchestrator {
       summary.channels.push({
         channelId: channel.id,
         channelName: channel.name,
+        provider: channel.type,
         published,
         deferred: Math.max(0, pending.length - published),
         remainingQuota: Math.max(0, quota.remaining - published),
@@ -320,13 +330,18 @@ export class AutomationOrchestrator {
   private logDistribution(summary: DistributionSummary): void {
     this.logger.log(
       JSON.stringify({
-        event: 'telegram_distribution_completed',
+        event: 'distribution_completed',
         counts: {
           eligible: summary.eligible,
           published: summary.published,
           deferred: summary.deferred,
         },
         deferredReason: summary.deferredReason,
+        byProvider: summary.channels.reduce<Record<string, number>>((acc, channel) => {
+          acc[channel.provider.toLowerCase()] =
+            (acc[channel.provider.toLowerCase()] ?? 0) + channel.published;
+          return acc;
+        }, {}),
         failures: summary.publishFailed,
       }),
     );

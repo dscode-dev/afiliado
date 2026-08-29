@@ -13,8 +13,10 @@ export default async function PublicationsPage() {
       <header>
         <h2>Publicacoes</h2>
         <p>
-          Registro de cada tentativa de publicacao no Telegram. Uma oferta e publicada no maximo
-          uma vez por canal.
+          Registro de cada publicacao, em qualquer destino. Uma oferta e publicada no maximo uma
+          vez por canal. <strong>Tentar novamente</strong> reenvia pelo provider do proprio canal;
+          publicacoes <strong>manuais</strong> (WhatsApp) nao tem reenvio automatico e ficam sem
+          ID externo.
         </p>
       </header>
 
@@ -31,10 +33,11 @@ export default async function PublicationsPage() {
                 <tr>
                   <th>Produto</th>
                   <th>Preco</th>
+                  <th>Destino</th>
                   <th>Canal</th>
                   <th>Status</th>
                   <th>Publicado em</th>
-                  <th>Mensagem</th>
+                  <th>ID externo</th>
                   <th>Erro</th>
                   <th />
                 </tr>
@@ -46,12 +49,15 @@ export default async function PublicationsPage() {
                       {publication.offer?.productTitle ?? publication.offer?.productId ?? '—'}
                     </td>
                     <td>{publication.offer ? formatMoney(publication.offer.price) : '—'}</td>
-                    <td className="wrap">
-                      {publication.channel?.name ?? publication.channelId}
-                      {publication.channel ? (
-                        <span className="muted"> ({publication.channel.type})</span>
+                    <td>
+                      {publication.channel?.type ?? '—'}
+                      {publication.channel?.type === 'WHATSAPP' ? (
+                        <span className="badge" style={{ marginLeft: 6 }}>
+                          manual
+                        </span>
                       ) : null}
                     </td>
+                    <td className="wrap">{publication.channel?.name ?? publication.channelId}</td>
                     <td>
                       <StatusBadge status={publication.status} />
                     </td>

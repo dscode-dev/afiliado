@@ -14,14 +14,14 @@ import { PublicationView } from './publication.entity';
 import { PublicationService } from './publication.service';
 import {
   PublishResult,
-  TelegramPublisherService,
-} from './telegram/telegram-publisher.service';
+  PublicationDispatcher,
+} from './publish/publication-dispatcher.service';
 
 @Controller('publications')
 export class PublicationController {
   constructor(
     private readonly publications: PublicationService,
-    private readonly publisher: TelegramPublisherService,
+    private readonly publisher: PublicationDispatcher,
   ) {}
 
   @Get()

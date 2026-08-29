@@ -240,6 +240,7 @@ export interface PublishResult {
   publication: Publication;
   delivered: boolean;
   usedPhoto: boolean;
+  provider: ChannelType;
 }
 
 export interface PublishAllReport {
@@ -252,7 +253,8 @@ export interface PublishAllReport {
 
 export interface ChannelTestResult {
   ok: true;
-  chat: { id: string; title: string | null };
+  provider: ChannelType;
+  destination: { id: string; name: string | null };
 }
 
 export interface CycleSummary {
@@ -285,17 +287,27 @@ export interface CycleSummary {
     channels: {
       channelId: string;
       channelName: string;
+      provider: ChannelType;
       published: number;
       deferred: number;
       remainingQuota: number;
     }[];
-    failures: { offerId: string; channelId: string; reason: string }[];
+    failures: { offerId: string; channelId: string; provider: ChannelType; reason: string }[];
   } | null;
   phaseFailures: { phase: string; reason: string }[];
 }
 
+export interface ProviderStatus {
+  provider: ChannelType;
+  autopilotEnabled: boolean;
+  minScore: number;
+  maxPostsPerHour: number;
+  maxPostsPerDay: number;
+}
+
 export interface AutomationStatus {
   autopilotEnabled: boolean;
+  providers: ProviderStatus[];
   schedulerEnabled: boolean;
   running: boolean;
   runningPhase: string | null;
@@ -307,12 +319,28 @@ export interface AutomationStatus {
     distribution: string | null;
   };
   limits: {
-    minScore: number;
-    maxPostsPerHour: number;
-    maxPostsPerDay: number;
     maxOfferAgeHours: number;
     publishWindow: string;
     timezone: string;
     withinPublishWindow: boolean;
   };
+}
+
+export interface ManualPreview {
+  offerId: string;
+  channelId: string;
+  channelName: string;
+  provider: ChannelType;
+  productTitle: string;
+  text: string;
+  affiliateUrl: string;
+  imageUrl: string | null;
+  price: string;
+  alreadyPublished: boolean;
+  publishedAt: string | null;
+}
+
+export interface ManualPublicationResult {
+  publication: Publication;
+  provider: ChannelType;
 }

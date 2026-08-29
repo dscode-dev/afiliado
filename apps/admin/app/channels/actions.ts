@@ -60,6 +60,6 @@ export async function testChannel(_state: FormState, formData: FormData): Promis
 
   return {
     ok: true,
-    message: `Canal acessivel pelo bot: ${result.chat.title ?? result.chat.id}`,
+    message: `Canal validado (${result.provider}): ${result.destination.name ?? result.destination.id}`,
   };
 }

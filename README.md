@@ -1,15 +1,17 @@
-# Afiliado
+# Garimpo
 
-Sistema interno de automação de ofertas afiliadas do Mercado Livre.
+> Inteligência e distribuição automatizada de boas oportunidades de compra.
+
+Sistema interno que garimpa ofertas do Mercado Livre e as distribui em canais públicos.
 
 O produto monitora produtos e ofertas, registra links de afiliado, avalia oportunidades e
 distribui as melhores em canais públicos (Telegram, Facebook, WhatsApp). O cliente final é
 sempre levado **diretamente ao Mercado Livre** — não existe checkout, pagamento, estoque,
 logística nem atendimento transacional próprio.
 
-> **Estado atual: PR-05 — Automation Loop / Telegram Autopilot.**
-> O pipeline roda sozinho em intervalos controlados e publica só as melhores oportunidades.
-> **O autopilot nasce desligado.** Facebook e WhatsApp continuam fora.
+> **Estado atual: PR-07 — WhatsApp Distribution + Garimpo Branding.**
+> Fecha a distribuição da V1: Telegram e Facebook publicam automaticamente, WhatsApp é
+> semiassistido (a Meta não oferece API oficial para Canais). O painel passa a ser o **Garimpo**.
 
 ## Visão do fluxo
 
@@ -26,15 +28,16 @@ Offer                   [PR-03 — gerada automaticamente]
       ↓
 Distribution            [PR-04 — Telegram]
       ↓
-Telegram                [PR-04]  ·  Facebook / WhatsApp [PR futuro]
+Telegram [PR-04]  ·  Facebook [PR-06]  ·  WhatsApp [PR-07, semiassistido]
 
-        ↺ Autopilot     [PR-05 — o ciclo acima roda sozinho, opt-in]
+        ↺ Autopilot     [PR-05 — o ciclo acima roda sozinho, opt-in por destino]
 ```
 
 Hoje o catálogo é alimentado pela API oficial do Mercado Livre, mantém histórico de preços, é
 avaliado por um engine determinístico que gera `Offer`, e as oportunidades aprovadas podem ser
-publicadas em canais do Telegram — manualmente ou pelo autopilot, que executa todo o ciclo em
-intervalos controlados. Facebook e WhatsApp ainda não têm código.
+publicadas em canais do Telegram e em Páginas do Facebook — manualmente ou pelo autopilot, que
+executa todo o ciclo em intervalos controlados. Para o WhatsApp o sistema prepara o conteúdo e o
+operador publica, porque não existe API oficial para Canais.
 
 ## Arquitetura
 
@@ -61,6 +64,19 @@ Decisões conscientes deste PR:
   para não perder precisão em JSON.
 - **Server Components + Server Actions** no admin — sem biblioteca de estado no cliente.
 
+## Identidade
+
+O produto chama-se **Garimpo**. A logo original fica em `assets/logo.png` e é servida pelo painel
+em `/assets/logo.png` — usada **sem nenhuma alteração**: mesma imagem, mesmas cores, proporção
+3:1 preservada por `height: auto` (nunca esticada).
+
+A paleta do painel foi amostrada da própria logo: petróleo profundo `#002030`–`#005060` e dourado
+`#f0b000` como acento. O dourado é usado em bordas e destaques, nunca como cor de texto sobre
+fundo claro — o contraste não seria suficiente.
+
+Módulos técnicos internos (`modules/affiliate`, `affiliate_links`, …) mantêm seus nomes: branding
+não é refactor arquitetural.
+
 ## Stack
 
 | Camada    | Tecnologia                          |
@@ -79,6 +95,7 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 ```text
 .
 ├── docker-compose.yml           # postgres + migrate + api + admin
+├── assets/logo.png              # logo original do Garimpo
 ├── .dockerignore
 ├── docker/postgres/init/        # cria o banco de testes no primeiro boot
 ├── .env.example                 # todas as variáveis, documentadas
@@ -100,12 +117,18 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 │   │   │       ├── marketplace/   # client oficial do Mercado Livre
 │   │   │       ├── affiliate/     # AffiliateLink
 │   │   │       ├── opportunity/   # Offer, engine de score (scoring/)
-│   │   │       ├── distribution/  # Channel, Publication, telegram/
+│   │   │       ├── distribution/  # Channel, Publication
+│   │   │       │   ├── publish/    # ChannelPublisher + dispatcher comum
+│   │   │       │   ├── telegram/
+│   │   │       │   ├── facebook/
+│   │   │       │   ├── whatsapp/  # renderer (sem API oficial)
+│   │   │       │   └── manual/    # fluxo semiassistido
 │   │   │       ├── automation/    # orquestrador, scheduler, política
 │   │   │       └── analytics/     # contadores do dashboard
 │   │   └── test/                # testes de integração
-│   └── admin/                   # Next.js
+│   └── admin/                   # Next.js (painel Garimpo)
 │       ├── Dockerfile           # build -> standalone
+│       ├── public/assets/       # logo servida em /assets/logo.png
 │       ├── app/                 # uma pasta por tela (page.tsx + actions.ts)
 │       ├── components/          # formulário genérico, ações de linha, helpers de UI
 │       └── lib/                 # cliente HTTP da API interna e tipos
@@ -118,7 +141,7 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 | `catalog`      | `Product`, `PriceSnapshot`        | import/sync reais + histórico |
 | `affiliate`    | `AffiliateLink`                   | cadastro manual + rastreio de origem |
 | `opportunity`  | `Offer`, `OpportunityEvaluation`  | engine de score + decisão humana |
-| `distribution` | `Channel`, `Publication`, Telegram | publicação real e idempotente no Telegram |
+| `distribution` | `Channel`, `Publication`, Telegram, Facebook, WhatsApp | publicação idempotente; `ChannelPublisher` para destinos automáticos e fluxo semiassistido para o WhatsApp |
 | `automation`   | orquestrador, scheduler, política | ciclo automático (autopilot)  |
 | `analytics`    | contadores do dashboard           | mínimo, só o que o painel usa |
 | `marketplace`  | integração oficial Mercado Livre  | implementado (client, auth, highlights) |
@@ -135,7 +158,20 @@ Há dois modos. Escolha um:
 | **Só o banco** | Desenvolvimento: hot reload na API e no admin | `npm run db:up` + `npm run dev` |
 | **Stack completa** | Rodar tudo em containers, como em produção | `npm run stack:up` |
 
-### Stack completa em Docker
+### Identidade
+
+O produto chama-se **Garimpo**. A logo original fica em `assets/logo.png` e é servida pelo painel
+em `/assets/logo.png` — usada **sem nenhuma alteração**: mesma imagem, mesmas cores, proporção
+3:1 preservada por `height: auto` (nunca esticada).
+
+A paleta do painel foi amostrada da própria logo: petróleo profundo `#002030`–`#005060` e dourado
+`#f0b000` como acento. O dourado é usado em bordas e destaques, nunca como cor de texto sobre
+fundo claro — o contraste não seria suficiente.
+
+Módulos técnicos internos (`modules/affiliate`, `affiliate_links`, …) mantêm seus nomes: branding
+não é refactor arquitetural.
+
+## Stack completa em Docker
 
 ```bash
 cp .env.example .env      # ajuste as credenciais que for usar
@@ -236,6 +272,15 @@ Todas em `.env` na raiz, compartilhado por API e admin. Ver `.env.example`.
 | `TELEGRAM_MIN_SCORE` | não | Score mínimo para publicação automática (padrão `85`) |
 | `TELEGRAM_MAX_OFFER_AGE_HOURS` | não | Idade máxima da oferta (padrão `24`) |
 | `TELEGRAM_PUBLISH_START_HOUR` / `_END_HOUR` | não | Janela de publicação (padrão `7`/`22`) |
+| `META_APP_ID` / `META_APP_SECRET` | publicação FB | Credenciais da app Meta. **Secret** |
+| `META_PAGE_ACCESS_TOKEN` | publicação FB | **Secret.** Page Access Token com `pages_manage_posts` |
+| `META_API_VERSION` | não | Versão da Graph API (padrão `v21.0`) |
+| `META_TIMEOUT_MS` | não | Timeout por chamada à Graph API (padrão `15000`) |
+| `META_API_BASE_URL` | não | Base da Graph API; sobrescrita apenas nos testes |
+| `FACEBOOK_AUTO_PUBLISH_ENABLED` | não | **Autopilot do Facebook. Padrão `false`** |
+| `FACEBOOK_MAX_POSTS_PER_HOUR` | não | Limite por Page por hora (padrão `1`) |
+| `FACEBOOK_MAX_POSTS_PER_DAY` | não | Limite por Page por dia (padrão `6`) |
+| `FACEBOOK_MIN_SCORE` | não | Score mínimo para publicação automática (padrão `85`) |
 | `APP_TIMEZONE` | não | Timezone da janela (padrão `America/Sao_Paulo`) |
 
 `APP_ENV`, `API_PORT` e `DATABASE_URL` são validados no boot: a aplicação falha rápido e com
@@ -324,9 +369,11 @@ respondem `{ data, total, take, skip }`.
 | `POST`  | `/opportunities/:productId/decision` | Registra decisão humana (`APPROVED`/`REJECTED`) |
 | `DELETE`| `/opportunities/:productId/decision` | Remove o override e devolve a decisão ao engine |
 | `POST`  | `/offers/:id/publish`  | Publica no Telegram (`{ "channelId": "..." }`)      |
-| `POST`  | `/offers/:id/publish-all` | Publica em todos os canais Telegram ativos        |
+| `POST`  | `/offers/:id/publish-all` | Publica em todos os canais ativos suportados     |
 | `POST`  | `/publications/:id/retry` | Reenvia uma publicação `FAILED`                   |
-| `POST`  | `/channels/:id/test`   | Valida o canal via `getChat`, sem publicar          |
+| `POST`  | `/channels/:id/test`   | Valida o canal (Telegram `getChat` / Facebook `GET /{page-id}`), sem publicar |
+| `GET`   | `/offers/:id/manual-preview` | Texto pronto para copiar (`?channelId=`), somente leitura |
+| `POST`  | `/offers/:id/manual-publication` | Registra publicação feita manualmente pelo operador |
 | `POST`  | `/automation/run`      | Executa agora o mesmo ciclo do scheduler            |
 | `GET`   | `/automation/status`   | Autopilot, execução atual, última execução e limites |
 
@@ -912,6 +959,316 @@ são repetidos.
 O corpo bruto da Bot API nunca é repassado, e **o token não aparece em log, erro ou resposta** —
 há teste que verifica isso explicitamente.
 
+## Publicação no Facebook
+
+Segundo destino do mesmo pipeline. Não há Opportunity Engine, scheduler ou política própria —
+Facebook é **distribuição, não inteligência**.
+
+### API oficial utilizada
+
+Confirmado na documentação da Meta antes da implementação:
+
+| Endpoint | Uso |
+| -------- | --- |
+| `POST /{page-id}/feed` | Post de texto com link (`message`, `link`) |
+| `POST /{page-id}/photos` | Post com imagem remota (`url`, `caption`) — retorna `id` e `post_id` |
+| `GET /{page-id}?fields=id,name` | Valida a Page **sem criar post** |
+
+Versão da Graph API em `META_API_VERSION` (padrão `v21.0`).
+
+**Sem scraping, sem browser automation, sem perfil pessoal, sem endpoints privados.**
+
+### 1. Criar a aplicação Meta
+
+1. Em [developers.facebook.com](https://developers.facebook.com), crie uma app do tipo *Business*.
+2. Copie **App ID** e **App Secret** para `META_APP_ID` / `META_APP_SECRET`.
+3. Adicione o produto **Facebook Login** (necessário para gerar tokens de Page).
+
+### 2. Permissões
+
+O token precisa destas permissões, todas confirmadas na documentação dos endpoints usados:
+
+| Permissão | Por quê |
+| --------- | ------- |
+| `pages_manage_posts` | Publicar em `/feed` e `/photos` |
+| `pages_read_engagement` | Exigida em conjunto pelos endpoints de publicação |
+| `pages_show_list` | Exigida por `/photos` |
+
+Quem gera o token precisa ter a task **CREATE_CONTENT** na Page.
+
+> Fora do modo de desenvolvimento, essas permissões passam por **App Review** da Meta. Enquanto a
+> app estiver em desenvolvimento, só administradores/testadores da app conseguem publicar.
+
+### 3. Page Access Token
+
+**É preciso um Page Access Token, não um User Access Token.** No Graph API Explorer: selecione a
+app, peça as permissões acima, gere o *User Token*, troque por *Page Token* na lista de Pages, e
+coloque o resultado em `META_PAGE_ACCESS_TOKEN`.
+
+```bash
+META_APP_ID=seu-app-id
+META_APP_SECRET=seu-app-secret
+META_PAGE_ACCESS_TOKEN=EAA...     # SECRET: nunca versione
+```
+
+> **Renovação é operação manual.** Tokens de Page derivados de um user token de curta duração
+> expiram. Para um token de longa duração, troque o user token por um *long-lived token* e derive
+> o Page Token dele — Page Tokens derivados de user tokens de longa duração normalmente não
+> expiram, mas são revogados se a senha mudar, se a permissão for removida ou se a app perder
+> acesso. **Não há renovação automática aqui**: quando o token expira, a publicação falha com
+> diagnóstico explícito (ver abaixo) e o operador gera um novo. Não construímos cofre de tokens.
+
+### 4. Cadastrar a Page como Channel
+
+Em `/channels`, crie um canal `FACEBOOK` e coloque o **Page ID** em `externalIdentifier`:
+
+```text
+1234567890
+```
+
+Use **Testar canal**: chama `GET /{page-id}`, que confirma que o token enxerga a Page **sem
+publicar nada**. Nenhum post de teste é enviado silenciosamente.
+
+### O que pode ser publicado
+
+Exatamente as mesmas regras do Telegram — a elegibilidade vem do `effectiveStatus` do PR-03:
+
+| Condição | Se falhar |
+| -------- | --------- |
+| Canal `FACEBOOK` ativo e com Page ID | `422`, sem chamar a Meta |
+| Produto com `AffiliateLink` **ativo** | `422`, sem chamar a Meta |
+| `effectiveStatus === APPROVED` | `422`, sem chamar a Meta |
+
+**A regra do link de afiliado continua absoluta.** O `permalink` do produto nunca é usado como
+fallback.
+
+### O post
+
+Renderer determinístico **próprio do Facebook** — a superfície não é a mesma do Telegram, então o
+texto também não é:
+
+```text
+🔥 Oferta encontrada
+
+Echo Dot 5a geracao
+
+De R$ 1.000,00
+por R$ 700,00
+
+📉 30% de desconto
+📊 Proximo do menor preco que acompanhamos
+⭐ Entre os mais vendidos da categoria
+
+Confira no Mercado Livre:
+https://mercadolivre.com/sec/abc
+```
+
+Mesmas garantias: sem IA, sem urgência falsa, sem "últimas unidades", sem "menor preço da
+história". As duas linhas de destaque só aparecem quando os componentes `popularity` e
+`priceHistory` do engine realmente pontuaram.
+
+Com `imageUrl` usamos `/photos` (imagem + legenda) e guardamos o `post_id`; sem imagem, `/feed`
+(mensagem + link). O fallback para texto acontece **apenas** em falha atribuível à mídia — erro de
+permissão, token ou Page sobe como está.
+
+### Publicar
+
+```bash
+curl -X POST http://localhost:3333/offers/<offerId>/publish \
+  -H 'Content-Type: application/json' -d '{"channelId":"<facebookChannelId>"}'
+```
+
+No admin, `/opportunities` lista todos os destinos ativos no seletor de **Publicar**:
+
+```text
+Publicar
+  ├── TELEGRAM — Ofertas Tech
+  └── FACEBOOK — Achados Tech
+```
+
+### Autopilot
+
+Cada destino é **opt-in independente**:
+
+| Variável | Padrão |
+| -------- | -----: |
+| `FACEBOOK_AUTO_PUBLISH_ENABLED` | **`false`** |
+| `FACEBOOK_MAX_POSTS_PER_HOUR` | 1 |
+| `FACEBOOK_MAX_POSTS_PER_DAY` | 6 |
+| `FACEBOOK_MIN_SCORE` | 85 |
+
+Limites menores que os do Telegram: o feed de uma Page tolera menos volume.
+
+**Quotas são por canal e independentes** — publicar no Telegram não consome cota do Facebook, e
+vice-versa. Ranking, janela de horário (`APP_TIMEZONE`) e idade máxima da oferta são os mesmos
+para todos os destinos: não há calendário por canal.
+
+**A falha de um provider não impede o outro.** Se a Meta recusar, o Telegram publica normalmente
+no mesmo ciclo, e vice-versa — há teste para os dois sentidos.
+
+### Erros conhecidos
+
+| Situação (código da Meta) | Resposta | O que fazer |
+| ------------------------- | -------: | ----------- |
+| Token expirado/revogado (190, subcode 463/467) | `502` | **Gerar novo Page Access Token** |
+| Token inválido (190) | `502` | Revisar `META_PAGE_ACCESS_TOKEN` |
+| Permissão negada (10, 200–299) | `422` | Conceder `pages_manage_posts` na Page |
+| Page inexistente (803) | `422` | Conferir o Page ID |
+| Conteúdo/mídia inválidos (100) | `422` | Verificar imagem ou texto |
+| Rate limit (4, 17, 32, 613) | `429` | Aguardar |
+| Timeout (resultado ambíguo) | `502` | **Conferir a Page** antes de reenviar |
+| Graph API fora do ar (5xx) | `503` | Reenviar depois |
+
+Token expirado **não entra em loop de retry**: falha uma vez, com diagnóstico explícito. O payload
+bruto da Meta (incluindo `fbtrace_id`) nunca é repassado, e **o token não aparece em log, erro ou
+resposta** — ele vai no corpo do POST, nunca no caminho da URL, e há teste verificando isso.
+
+### Duplicidade externa
+
+Mesma política conservadora do Telegram: um **timeout nunca é repetido automaticamente**. Vira
+`unknown_outcome`, a `Publication` fica `FAILED` com *"o post pode ter sido publicado; confira a
+Page antes de reenviar"*, e o reenvio é decisão do operador. Preferimos um post ausente a um post
+duplicado. Não tentamos exactly-once entre nosso banco e a Meta.
+
+### Idempotência e retry
+
+Reutiliza a `Publication` existente e a constraint `UNIQUE (offerId, channelId)` do PR-04 — sem
+tabela nova e sem migration. `POST /publications/:id/retry` funciona para qualquer provider,
+escolhido pelo `Channel` da própria publicação; só `FAILED` é elegível.
+
+## Distribuição no WhatsApp (semiassistida)
+
+### Verificação da API oficial — resultado
+
+Antes de escrever qualquer código, consultamos a documentação atual da Meta para determinar se
+existe API oficial para **publicar em Canais do WhatsApp**.
+
+> **WhatsApp Channels official API: NOT FOUND**
+> **Implementation mode: SEMI_ASSISTED**
+
+A WhatsApp Business Platform oferece exatamente três APIs, e **nenhuma delas publica em Canais**:
+
+| API oficial | Para que serve | Serve para Canais? |
+| ----------- | -------------- | ------------------ |
+| **Cloud API** (`POST /{phone-number-id}/messages`) | Mensagens *business-to-user*: confirmações, lembretes, atendimento | ❌ Não. É 1-para-1 / grupo, não broadcast em canal |
+| **Business Management API** | Gerenciar a conta, números e templates | ❌ Não publica conteúdo |
+| **Marketing Messages API** | Mensagens promocionais para usuários que optaram por recebê-las | ❌ Continua sendo B2U, não Canal |
+
+**WhatsApp Channels é um recurso do aplicativo**, administrado de dentro do WhatsApp. A
+documentação para desenvolvedores não expõe endpoint, permissão ou tipo de token para publicar
+nele.
+
+> ⚠️ **Cloud API não é equivalente a uma API de Canais.** Usá-la para simular publicação em canal
+> seria enviar mensagem para contatos — outro produto, outro consentimento, outro risco.
+
+Fontes consultadas:
+[WhatsApp Business Platform — About the Platform](https://developers.facebook.com/docs/whatsapp/overview/) ·
+[WhatsApp Business Platform — Documentation](https://developers.facebook.com/docs/whatsapp/) ·
+[WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api/) ·
+[About WhatsApp Channels — Help Center](https://faq.whatsapp.com/549900560675125)
+
+### O que NÃO fizemos, e por quê
+
+**Nenhuma automação não oficial foi criada.** Sem browser automation, sem Puppeteer/Playwright/
+Selenium, sem QR code scraping, sem biblioteca que emula o WhatsApp Web, sem cookies ou chaves de
+sessão capturados, sem automação de conta pessoal.
+
+Contornar a ausência de API custaria o bloqueio da conta e violaria os termos da plataforma. O
+caminho semiassistido é a resposta correta enquanto a Meta não publicar uma API de Canais.
+
+### Como funciona
+
+```text
+Opportunity APPROVED
+        ↓
+WhatsApp Renderer (determinístico)
+        ↓
+Preview no admin  ──►  operador copia  ──►  publica no Canal
+        ↓
+"Marcar como publicado"
+        ↓
+Publication = PUBLISHED
+```
+
+O sistema **prepara e registra**; quem publica é o operador. **Nada sai daqui para a Meta.**
+
+Não criamos status novo nem tabela nova: enquanto a publicação não é confirmada simplesmente não
+existe `Publication`. Confirmar cria a linha já como `PUBLISHED`. A máquina de estados continua
+exatamente a mesma.
+
+### Cadastrar o canal
+
+Em `/channels`, crie um canal `WHATSAPP`. **Não pedimos credencial nenhuma** — não existe token
+para isso. `externalIdentifier` é **opcional** e serve apenas para você identificar o canal.
+
+### Preparar e registrar
+
+```bash
+# preview (somente leitura — não cria Publication)
+curl "http://localhost:3333/offers/<offerId>/manual-preview?channelId=<channelId>"
+
+# registrar que você publicou no canal
+curl -X POST http://localhost:3333/offers/<offerId>/manual-publication \
+  -H 'Content-Type: application/json' -d '{"channelId":"<channelId>"}'
+```
+
+No admin, em `/opportunities`, uma oportunidade `APPROVED` mostra **Preparar publicação manual
+(WhatsApp)** com o texto pronto, **Copiar texto**, **Copiar link**, **Abrir imagem** e **Marcar
+como publicado**.
+
+### A mensagem
+
+Renderer próprio, mais curto que os outros — precisa caber na tela de um celular e sobreviver a
+um copiar/colar:
+
+```text
+🔥 Oferta encontrada
+
+Echo Dot 5a geracao Smart Speaker com Alexa
+
+De R$ 1.000,00
+por R$ 700,00
+
+📉 30% de desconto
+📊 Proximo do menor preco que acompanhamos
+⭐ Entre os mais vendidos da categoria
+
+👉 Confira no Mercado Livre:
+https://mercadolivre.com/sec/echo-garimpo
+```
+
+O WhatsApp interpreta `*`, `_` e `~` como formatação, então o corpo **não usa nenhum desses
+caracteres** e o título é sanitizado. Mesmas garantias dos outros canais: sem urgência falsa, sem
+estoque inventado, sem "menor preço da história" — as duas linhas de destaque só aparecem quando
+os componentes do Opportunity Engine realmente pontuaram.
+
+### Regras
+
+Exatamente as mesmas dos canais automáticos — o preview reutiliza a validação do
+`PublicationDispatcher`, então não há como divergirem:
+
+| Condição | Se falhar |
+| -------- | --------- |
+| Canal `WHATSAPP` ativo | `422` |
+| Produto com `AffiliateLink` **ativo** | `422` |
+| `effectiveStatus === APPROVED` (engine + decisão humana) | `422` |
+
+**A regra do link de afiliado continua absoluta**, e o `permalink` nunca é usado como fallback.
+
+**Idempotência**: a mesma constraint `UNIQUE (offerId, channelId)`. Marcar duas vezes responde
+`409` — inclusive sob confirmações concorrentes (há teste com 5 simultâneas, uma única linha
+gravada). `externalMessageId` fica `NULL`: o WhatsApp não nos devolve um id de post.
+
+Um canal com automação oficial (Telegram, Facebook) **não pode** ser marcado manualmente — isso
+mascararia o resultado real da integração.
+
+### Não é autopilot
+
+O WhatsApp **não participa do ciclo automático**. O `AutomationOrchestrator` distribui apenas para
+tipos com `ChannelPublisher` registrado (Telegram e Facebook), então canais WhatsApp são
+estruturalmente ignorados — não há como uma publicação manual ser simulada pelo autopilot. Por
+isso também não existem variáveis `WHATSAPP_AUTO_PUBLISH_*`: não haveria o que ligar.
+
 ## Autopilot (ciclo automático)
 
 Executa o pipeline que já existia, em intervalos controlados, sem nenhuma infraestrutura nova.
@@ -1048,14 +1405,14 @@ Cada um com `durationMs`, `counts` e `failures`. Sem Prometheus, sem Grafana.
 | ------------------ | --------------------------------------------------------------- |
 | `/dashboard`       | Produtos ativos, links ativos, canais ativos, ofertas abertas, publicações |
 | `/products`        | Importar por ID do ML, sincronizar, **avaliar** (individual e lote), atualizar popularidade, listagem, ativar/desativar, cadastro manual |
-| `/opportunities`   | Score + breakdown por componente, razões, status do engine vs decisão do operador, aprovar/rejeitar, cadastro de link inline para itens `LINK REQUIRED`, e **Publicar** no Telegram para os `APPROVED` |
+| `/opportunities`   | Score + breakdown por componente, razões, status do engine vs decisão do operador, aprovar/rejeitar, cadastro de link inline para itens `LINK REQUIRED`, **Publicar** (Telegram/Facebook) e **Preparar publicação manual** (WhatsApp) |
 | `/products/discover` | Mais vendidos por categoria, com ação *Importar* por linha    |
 | `/products/[id]/prices` | Preço atual, última sincronização e histórico de preços    |
 | `/affiliate-links` | Cadastro (produto via select) + listagem + ativar/desativar      |
-| `/channels`        | Cadastro + listagem + ativar/desativar + **Testar canal** (Telegram) |
+| `/channels`        | Cadastro + listagem + ativar/desativar + **Testar canal** (Telegram e Facebook); canais WhatsApp aparecem marcados como `manual` |
 | `/offers`          | Cadastro + listagem + avanço de status (`DETECTED → CANDIDATE → APPROVED`) |
-| `/publications`    | Produto, preço, canal, status, data, `externalMessageId`, erro e **Tentar novamente** nas `FAILED` |
-| `/automation`      | Autopilot ON/OFF, estado, última e próxima execução, contadores do ciclo, política vigente e **Executar agora** |
+| `/publications`    | Produto, preço, destino (com marca `manual` no WhatsApp), status, data, ID externo, erro e **Tentar novamente** nas `FAILED` |
+| `/automation`      | Autopilot ON/OFF **por destino**, estado, última e próxima execução, contadores do ciclo, política por provider e **Executar agora** |
 
 UI deliberadamente mínima: sem gráficos, sem animações, sem biblioteca de componentes. O
 histórico é uma lista de preço + data, sem chart. Todos os dados vêm da API interna — **não há
@@ -1079,6 +1436,28 @@ real de fetch, timeout, retry, autenticação e parsing.
 Cobre, do PR-01: uniqueness de produto, CRUD de produto, link vinculado a produto (incluindo
 cascade), CRUD de canal (incluindo rejeição de secrets na `configuration`), criação e transição de
 status de oferta, integridade de `Publication`, validações, mass assignment, dashboard e health.
+
+Do PR-07: renderer do WhatsApp (incluindo ausência de caracteres que o app interpreta como
+formatação e diferença explícita dos outros dois), preview sem efeito colateral, canal sem
+`externalIdentifier`, `AffiliateLink` obrigatório, oportunidade não aprovada, rejeição humana,
+canal inativo, recusa de marcar manualmente um canal automatizado, confirmação registrando
+`PUBLISHED` com `externalMessageId` nulo, idempotência, 5 confirmações concorrentes com uma única
+linha, mesma oferta em canais WhatsApp distintos, e a listagem exibindo `WHATSAPP`.
+
+O workspace do admin tem suíte própria (`apps/admin/test`) verificando o branding: a logo servida
+é **byte a byte idêntica** ao asset original, `/assets/logo.png` é referenciada no layout e no
+dashboard, a proporção é preservada (sem altura fixa), a metadata é `Garimpo` e o nome antigo não
+aparece mais na interface.
+
+Do PR-06: renderer próprio do Facebook (incluindo sanitização do título e diferença explícita
+para o formato do Telegram), Page válida, canal inativo, Page ID ausente, `AffiliateLink`
+obrigatório, publicação com e sem imagem, fallback `/photos` → `/feed` apenas em falha de mídia,
+persistência do `post_id`, cada código de erro da Graph API (190 e subcodes, 10, 200, 803, 4, 5xx),
+token expirado com diagnóstico próprio e sem loop, timeout ambíguo sem retry, ausência do token e
+do payload bruto em respostas e em `Publication.errorMessage`, idempotência, 5 chamadas
+concorrentes com uma única entrega, retry manual pelo provider do canal, quotas independentes
+entre Telegram e Facebook, score mínimo por provider, autopilot de cada destino ligado
+separadamente, e falha de um provider não impedindo o outro (nos dois sentidos).
 
 Do PR-05: autopilot desligado por padrão, defaults conservadores, janela de horário (inclusive
 cruzando a meia-noite e em outra timezone), ciclo manual, scheduler delegando ao mesmo
@@ -1150,6 +1529,10 @@ O que existe neste PR:
 - **Tokens do Mercado Livre vivem apenas em memória** — nunca no banco, nunca em log, nunca em
   resposta da API. `MercadoLivreConfig` redige os secrets ao ser serializada.
 - A resposta bruta do Mercado Livre nunca é repassada ao cliente da API interna.
+- **Os tokens (bot do Telegram e Page Access Token da Meta) vivem apenas em environment
+  variables** — nunca em `Channel.configuration`, nunca no banco, em log, no frontend ou em
+  mensagem de erro. `TelegramConfig` e `FacebookConfig` redigem os secrets ao serem serializadas,
+  e há testes confirmando a ausência deles em respostas e em `Publication.errorMessage`.
 - **O token do bot do Telegram vive apenas em environment variables** — nunca no banco, em log,
   no frontend ou em mensagem de erro. Ele compõe a URL da Bot API, então essa URL também nunca é
   logada. `TelegramConfig` redige o token ao ser serializada, e há teste que confirma a ausência
@@ -1164,6 +1547,19 @@ Autenticação de admin precisa entrar em um PR próprio **antes** de o sistema 
 local. Não foi construído um IAM neste PR de propósito, para não antecipar complexidade.
 
 Outras dívidas deliberadas:
+
+- **WhatsApp depende de ação humana.** Enquanto a Meta não publicar uma API de Canais, a
+  publicação não pode ser automatizada — e não vamos contornar isso por fora. Se a API surgir,
+  basta implementar `ChannelPublisher` e o resto do pipeline já funciona.
+- A logo é servida como PNG de 642 KB. Suficiente para um painel interno; se um dia importar,
+  gerar versões otimizadas é trivial — mas exigiria processar o asset, o que este PR não faz.
+
+- **O Page Access Token da Meta não é renovado automaticamente.** Quando expira, a publicação
+  falha com diagnóstico explícito e o operador gera um novo token manualmente. Construir um
+  cofre/rotacionador de tokens ficou fora de escopo (ver *Publicação no Facebook → Page Access
+  Token*).
+- As permissões da Meta passam por App Review fora do modo de desenvolvimento; até lá só
+  administradores e testadores da app conseguem publicar.
 
 - **Instância única.** A trava contra ciclos simultâneos é um flag em memória. Rodar réplicas
   exigiria lock distribuído — cada uma teria a própria trava e poderiam publicar em paralelo.
@@ -1215,32 +1611,36 @@ Outras dívidas deliberadas:
 - Não há `DELETE`: registros são desativados (`active=false`). Nenhum caso de uso pediu exclusão.
 - Publicações não têm endpoint de escrita — chega junto com os workers de distribuição.
 
-## Fora do escopo do PR-05
+## Fora do escopo do PR-07
 
 Nada disto foi implementado, e a ausência é intencional:
 
-Meta APIs · Facebook · WhatsApp · site público · extensão de navegador · IA/LLM · geração variável
-de copy · machine learning · click tracking · analytics de conversão · comissão · sistema de
-notificações · scraping · geração automática de affiliate links · checkout · usuários finais ·
-pagamentos · estoque · outros marketplaces · **Redis** · **fila** · **lock distribuído** ·
-message broker · Kubernetes · **múltiplas instâncias** · UI complexa de configuração.
+Instagram · Threads · X · TikTok · site público · extensão de navegador · IA/LLM · geração
+variável de copy · geração de vídeos · machine learning · click tracking · commission tracking ·
+analytics novos · novos marketplaces · **Redis** · **fila** · message broker · Kubernetes ·
+**múltiplas instâncias** · redesign completo · autenticação complexa.
 
-**Telegram é a única integração de publicação.** `FACEBOOK` e `WHATSAPP` continuam existindo
-apenas como valores do enum `ChannelType`: tentar publicar neles responde `422`.
+E, explicitamente: **nenhuma automação não oficial do WhatsApp** — sem browser automation,
+Puppeteer, Playwright, Selenium, QR code scraping, bibliotecas que emulam o WhatsApp Web, cookies
+de sessão capturados ou automação de conta pessoal.
 
-Nenhuma integração externa nova foi criada neste PR — o autopilot apenas orquestra o que já
-existia.
+O **Opportunity Engine não foi alterado** neste PR — pesos, thresholds, componentes de score e
+override do operador permanecem exatamente como no PR-03. Este PR é distribuição e identidade
+visual, não inteligência.
 
 `AffiliateLink` continua **manual por decisão de produto**: descoberta de produto e link de
 afiliado seguem propositalmente separados.
 
-O objetivo deste PR é fazer o ciclo rodar sozinho, com limites conservadores:
+O objetivo deste PR é fechar a distribuição da V1 pelo caminho oficial possível em cada
+plataforma:
 
 ```text
-    ┌──────────────────────────────────────────────┐
-    ↓                                              │
-sync ativos → popularity → evaluate → política → publicar
-    │                                              │
-    └────── a cada N minutos, uma instância ───────┘
-                  opt-in, nasce OFF
+Opportunity APPROVED
+        ↓
+  ┌─────────────── automático ───────────────┐   ┌── semiassistido ──┐
+  │  Telegram [PR-04]    Facebook [PR-06]    │   │  WhatsApp [PR-07] │
+  │  ChannelPublisher → API oficial          │   │  preview → operador│
+  └──────────────────────────────────────────┘   └───────────────────┘
+                        ↓
+        Publication (idempotente por offer + canal)
 ```

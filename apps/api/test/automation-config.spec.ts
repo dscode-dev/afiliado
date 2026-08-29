@@ -4,20 +4,66 @@ const config = (env: Record<string, string> = {}) =>
   new AutomationConfig(env as NodeJS.ProcessEnv);
 
 describe('AutomationConfig', () => {
-  it('nasce com o autopilot DESLIGADO', () => {
-    // A garantia mais importante do PR: subir a aplicacao nunca publica nada.
-    expect(config().autoPublishEnabled).toBe(false);
-    expect(config({ TELEGRAM_AUTO_PUBLISH_ENABLED: '' }).autoPublishEnabled).toBe(false);
-    expect(config({ TELEGRAM_AUTO_PUBLISH_ENABLED: 'yes' }).autoPublishEnabled).toBe(false);
-    expect(config({ TELEGRAM_AUTO_PUBLISH_ENABLED: 'TRUE' }).autoPublishEnabled).toBe(true);
+  it('nasce com o autopilot DESLIGADO em todos os destinos', () => {
+    // A garantia mais importante: subir a aplicacao nunca publica nada.
+    const defaults = config();
+
+    expect(defaults.anyAutoPublishEnabled).toBe(false);
+    expect(defaults.policyFor('TELEGRAM').enabled).toBe(false);
+    expect(defaults.policyFor('FACEBOOK').enabled).toBe(false);
+
+    expect(config({ TELEGRAM_AUTO_PUBLISH_ENABLED: 'yes' }).policyFor('TELEGRAM').enabled).toBe(
+      false,
+    );
+    expect(config({ TELEGRAM_AUTO_PUBLISH_ENABLED: 'TRUE' }).policyFor('TELEGRAM').enabled).toBe(
+      true,
+    );
+    expect(config({ FACEBOOK_AUTO_PUBLISH_ENABLED: 'true' }).policyFor('FACEBOOK').enabled).toBe(
+      true,
+    );
+  });
+
+  it('habilita cada destino de forma independente', () => {
+    const onlyFacebook = config({ FACEBOOK_AUTO_PUBLISH_ENABLED: 'true' });
+
+    expect(onlyFacebook.policyFor('FACEBOOK').enabled).toBe(true);
+    expect(onlyFacebook.policyFor('TELEGRAM').enabled).toBe(false);
+    expect(onlyFacebook.anyAutoPublishEnabled).toBe(true);
+  });
+
+  it('usa o menor score entre os destinos habilitados na selecao ampla', () => {
+    const mixed = config({
+      TELEGRAM_AUTO_PUBLISH_ENABLED: 'true',
+      TELEGRAM_MIN_SCORE: '90',
+      FACEBOOK_AUTO_PUBLISH_ENABLED: 'true',
+      FACEBOOK_MIN_SCORE: '80',
+    });
+
+    expect(mixed.selectionMinScore).toBe(80);
+    // Sem nenhum habilitado, cai para o menor configurado - o relatorio
+    // continua mostrando o que seria elegivel.
+    expect(config().selectionMinScore).toBe(85);
+    expect(Number.isFinite(config().selectionMinScore)).toBe(true);
+  });
+
+  it('nunca considera WHATSAPP elegivel: nao ha publisher', () => {
+    expect(config().policyFor('WHATSAPP').enabled).toBe(false);
   });
 
   it('usa defaults conservadores', () => {
     const defaults = config();
 
-    expect(defaults.minScore).toBe(85);
-    expect(defaults.maxPostsPerHour).toBe(2);
-    expect(defaults.maxPostsPerDay).toBe(12);
+    expect(defaults.policyFor('TELEGRAM')).toMatchObject({
+      minScore: 85,
+      maxPostsPerHour: 2,
+      maxPostsPerDay: 12,
+    });
+    // Feed de Page tolera menos volume.
+    expect(defaults.policyFor('FACEBOOK')).toMatchObject({
+      minScore: 85,
+      maxPostsPerHour: 1,
+      maxPostsPerDay: 6,
+    });
     expect(defaults.maxOfferAgeHours).toBe(24);
     expect(defaults.productRefreshIntervalMinutes).toBe(60);
     expect(defaults.evaluationIntervalMinutes).toBe(30);
@@ -32,13 +78,15 @@ describe('AutomationConfig', () => {
       TELEGRAM_MIN_SCORE: '-5',
     });
 
-    expect(invalid.maxPostsPerHour).toBe(2);
+    expect(invalid.policyFor('TELEGRAM').maxPostsPerHour).toBe(2);
     expect(invalid.productRefreshIntervalMinutes).toBe(60);
-    expect(invalid.minScore).toBe(85);
+    expect(invalid.policyFor('TELEGRAM').minScore).toBe(85);
   });
 
   it('aceita zero como limite explicito de publicacao', () => {
-    expect(config({ TELEGRAM_MAX_POSTS_PER_HOUR: '0' }).maxPostsPerHour).toBe(0);
+    expect(config({ TELEGRAM_MAX_POSTS_PER_HOUR: '0' }).policyFor('TELEGRAM').maxPostsPerHour).toBe(
+      0,
+    );
   });
 
   describe('janela de publicacao', () => {

@@ -9,6 +9,9 @@ import { createChannel, setChannelActive } from './actions';
 
 export const dynamic = 'force-dynamic';
 
+/** Somente canais automatizados podem ser testados contra o provider. */
+const SUPPORTED_FOR_TEST: string[] = ['TELEGRAM', 'FACEBOOK'];
+
 const FIELDS: Field[] = [
   {
     kind: 'select',
@@ -23,7 +26,7 @@ const FIELDS: Field[] = [
     name: 'externalIdentifier',
     label: 'Identificador externo',
     type: 'text',
-    placeholder: '@meu_canal',
+    placeholder: '@meu_canal (Telegram) ou 1234567890 (Page ID)',
   },
   {
     kind: 'input',
@@ -42,9 +45,12 @@ export default async function ChannelsPage() {
       <header>
         <h2>Canais</h2>
         <p>
-          Destinos de publicacao. Somente TELEGRAM e operacional nesta versao. O token do bot
-          fica em environment variables e nunca neste cadastro - para Telegram, informe o canal
-          em <code>externalIdentifier</code> (ex.: <code>@meu_canal</code>).
+          Destinos de publicacao. <strong>TELEGRAM</strong> e <strong>FACEBOOK</strong> publicam
+          automaticamente; <strong>WHATSAPP</strong> e semiassistido — o WhatsApp nao oferece API
+          oficial para Canais, entao o painel prepara o texto e o operador publica. Tokens ficam
+          em environment variables e nunca neste cadastro. Em <code>externalIdentifier</code>{' '}
+          informe <code>@meu_canal</code> (Telegram) ou o <strong>Page ID</strong> (Facebook); no
+          WhatsApp o campo e opcional e serve so para voce identificar o canal.
         </p>
       </header>
 
@@ -74,7 +80,14 @@ export default async function ChannelsPage() {
               <tbody>
                 {channels.data.map((channel) => (
                   <tr key={channel.id}>
-                    <td>{channel.type}</td>
+                    <td>
+                      {channel.type}
+                      {channel.type === 'WHATSAPP' ? (
+                        <span className="badge" style={{ marginLeft: 6 }}>
+                          manual
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="wrap">{channel.name}</td>
                     <td>{channel.externalIdentifier ?? '—'}</td>
                     <td className="wrap">
@@ -86,7 +99,7 @@ export default async function ChannelsPage() {
                     <td>{formatDate(channel.createdAt)}</td>
                     <td>
                       <div className="row-actions">
-                        {channel.type === 'TELEGRAM' && channel.externalIdentifier ? (
+                        {SUPPORTED_FOR_TEST.includes(channel.type) && channel.externalIdentifier ? (
                           <TestChannelButton id={channel.id} />
                         ) : null}
                         <RowActionForm

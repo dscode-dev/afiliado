@@ -16,6 +16,8 @@ export interface EvaluationSummary {
   evaluationFailed: number;
 }
 
+import { ChannelType } from '@prisma/client';
+
 export interface DistributionSummary {
   /** Oportunidades que passaram por score, idade e link afiliado. */
   eligible: number;
@@ -28,11 +30,12 @@ export interface DistributionSummary {
   channels: {
     channelId: string;
     channelName: string;
+    provider: ChannelType;
     published: number;
     deferred: number;
     remainingQuota: number;
   }[];
-  failures: { offerId: string; channelId: string; reason: string }[];
+  failures: { offerId: string; channelId: string; provider: ChannelType; reason: string }[];
 }
 
 export interface CycleSummary {
@@ -47,9 +50,19 @@ export interface CycleSummary {
   phaseFailures: { phase: string; reason: string }[];
 }
 
-export interface AutomationStatus {
-  /** Publicacao automatica habilitada (TELEGRAM_AUTO_PUBLISH_ENABLED). */
+export interface ProviderStatus {
+  provider: ChannelType;
   autopilotEnabled: boolean;
+  minScore: number;
+  maxPostsPerHour: number;
+  maxPostsPerDay: number;
+}
+
+export interface AutomationStatus {
+  /** Verdadeiro quando ao menos um destino tem publicacao automatica ligada. */
+  autopilotEnabled: boolean;
+  /** Estado por destino: cada um e opt-in independente. */
+  providers: ProviderStatus[];
   schedulerEnabled: boolean;
   running: boolean;
   runningPhase: string | null;
@@ -61,9 +74,6 @@ export interface AutomationStatus {
     distribution: string | null;
   };
   limits: {
-    minScore: number;
-    maxPostsPerHour: number;
-    maxPostsPerDay: number;
     maxOfferAgeHours: number;
     publishWindow: string;
     timezone: string;

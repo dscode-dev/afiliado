@@ -3,8 +3,9 @@ import Link from 'next/link';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Afiliado - Admin',
-  description: 'Painel administrativo interno de ofertas afiliadas',
+  title: 'Garimpo',
+  description: 'Inteligencia e distribuicao automatizada de boas oportunidades de compra.',
+  icons: { icon: '/assets/logo.png' },
 };
 
 const NAV = [
@@ -25,8 +26,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="layout">
           <aside className="sidebar">
-            <h1>Afiliado</h1>
-            <p className="tagline">Admin interno &middot; PR-01</p>
+            {/* Logo original, sem alteracao de cor, corte ou proporcao (3:1). */}
+            <img
+              className="brand-logo"
+              src="/assets/logo.png"
+              alt="Garimpo"
+              width={2172}
+              height={724}
+            />
+            <p className="tagline">Boas oportunidades, garimpadas e distribuidas.</p>
             <nav>
               {NAV.map((item) => (
                 <Link key={item.href} href={item.href}>

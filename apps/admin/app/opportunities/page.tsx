@@ -4,12 +4,14 @@ import { Field } from '@/components/form-state';
 import { RowActionForm } from '@/components/row-action-form';
 import { ScoreBreakdown } from '@/components/score-breakdown';
 import { Empty, formatDate, formatMoney } from '@/components/ui';
+import { ManualPublish, ManualPreviewData } from '@/components/manual-publish';
 import { PublishForm } from '@/components/publish-form';
-import { getList } from '@/lib/api';
-import { Channel, Opportunity, Publication } from '@/lib/types';
+import { ApiError, getList, getOne } from '@/lib/api';
+import { Channel, ManualPreview, Opportunity, Publication } from '@/lib/types';
 import {
   addLinkAndReevaluate,
   clearDecision,
+  confirmManualPublication,
   decide,
   evaluateProduct,
   publishOpportunity,
@@ -24,6 +26,11 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'IGNORE', label: 'Ignoradas' },
   { value: 'NOT_ELIGIBLE', label: 'Sem link' },
 ];
+
+/** Tipos com publicacao automatica oficial. */
+const PUBLISHABLE_TYPES: string[] = ['TELEGRAM', 'FACEBOOK'];
+/** Tipos sem API oficial: fluxo semiassistido. */
+const MANUAL_TYPES: string[] = ['WHATSAPP'];
 
 const BADGE_CLASS: Record<string, string> = {
   APPROVED: 'approved',
@@ -61,7 +68,8 @@ export default async function OpportunitiesPage({
 
   const [opportunities, channels, publications] = await Promise.all([
     getList<Opportunity>(`/opportunities?${query.toString()}`),
-    getList<Channel>('/channels?type=TELEGRAM&active=true&take=50'),
+    // Todos os destinos ativos, nao apenas Telegram.
+    getList<Channel>('/channels?active=true&take=50'),
     // take=100 e o maximo aceito pela API; o painel lista ate 100 oportunidades.
     getList<Publication>('/publications?take=100'),
   ]);
@@ -74,13 +82,46 @@ export default async function OpportunitiesPage({
     publishedByOffer.set(publication.offerId, list);
   }
 
+  const manualChannels = channels.data.filter((channel) => MANUAL_TYPES.includes(channel.type));
+
+  /**
+   * Previews dos canais manuais das oportunidades publicaveis.
+   * Gerados no servidor para que o operador possa copiar sem mais um clique;
+   * um preview que falhe (ex.: link removido) simplesmente nao aparece.
+   */
+  const previewsByOffer = new Map<string, ManualPreviewData[]>();
+  await Promise.all(
+    opportunities.data
+      .filter((opportunity) => opportunity.effectiveStatus === 'APPROVED' && opportunity.offerId)
+      .flatMap((opportunity) =>
+        manualChannels.map(async (channel) => {
+          try {
+            const preview = await getOne<ManualPreview>(
+              `/offers/${opportunity.offerId}/manual-preview?channelId=${channel.id}`,
+            );
+            const list = previewsByOffer.get(opportunity.offerId as string) ?? [];
+            list.push({
+              channelId: preview.channelId,
+              text: preview.text,
+              affiliateUrl: preview.affiliateUrl,
+              imageUrl: preview.imageUrl,
+              alreadyPublished: preview.alreadyPublished,
+            });
+            previewsByOffer.set(opportunity.offerId as string, list);
+          } catch (error) {
+            if (!(error instanceof ApiError)) throw error;
+          }
+        }),
+      ),
+  );
+
   return (
     <div>
       <header>
         <h2>Oportunidades</h2>
         <p>
-          Score do engine e decisao do operador, lado a lado. Nada e publicado neste PR —
-          aprovar apenas marca a oferta.
+          Score do engine e decisao do operador, lado a lado. Oportunidades aprovadas podem ser
+          publicadas no Telegram e no Facebook, e preparadas para o WhatsApp.
         </p>
       </header>
 
@@ -136,9 +177,15 @@ export default async function OpportunitiesPage({
             <OpportunityRow
               key={opportunity.productId}
               opportunity={opportunity}
-              telegramChannels={channels.data}
+              publishableChannels={channels.data.filter((channel) =>
+                PUBLISHABLE_TYPES.includes(channel.type),
+              )}
               publications={
                 opportunity.offerId ? (publishedByOffer.get(opportunity.offerId) ?? []) : []
+              }
+              manualChannels={manualChannels}
+              manualPreviews={
+                opportunity.offerId ? (previewsByOffer.get(opportunity.offerId) ?? []) : []
               }
             />
           ))
@@ -150,19 +197,23 @@ export default async function OpportunitiesPage({
 
 function OpportunityRow({
   opportunity,
-  telegramChannels,
+  publishableChannels,
   publications,
+  manualChannels,
+  manualPreviews,
 }: {
   opportunity: Opportunity;
-  telegramChannels: Channel[];
+  publishableChannels: Channel[];
   publications: Publication[];
+  manualChannels: Channel[];
+  manualPreviews: ManualPreviewData[];
 }) {
   const effective = opportunity.effectiveStatus;
   const publishable = effective === 'APPROVED' && opportunity.offerId !== null;
   const publishedChannelIds = new Set(
     publications.filter((p) => p.status === 'PUBLISHED').map((p) => p.channelId),
   );
-  const pendingChannels = telegramChannels.filter(
+  const pendingChannels = publishableChannels.filter(
     (channel) => !publishedChannelIds.has(channel.id),
   );
 
@@ -236,7 +287,11 @@ function OpportunityRow({
               <span className={`badge ${publication.status === 'PUBLISHED' ? 'approved' : 'rejected'}`}>
                 {publication.status === 'PUBLISHED' ? 'Publicado' : publication.status}
               </span>
-              <span>{publication.channel?.name ?? publication.channelId}</span>
+              <span>
+                {publication.channel
+                  ? `${publication.channel.type} — ${publication.channel.name}`
+                  : publication.channelId}
+              </span>
               <span className="muted">{formatDate(publication.publishedAt)}</span>
               {publication.status === 'FAILED' ? (
                 <Link className="badge" href="/publications">
@@ -250,18 +305,41 @@ function OpportunityRow({
 
       {publishable && pendingChannels.length > 0 ? (
         <div className="publish-box">
-          <strong style={{ fontSize: 13 }}>Publicar no Telegram</strong>
+          <strong style={{ fontSize: 13 }}>Publicar</strong>
           <PublishForm
             action={publishOpportunity}
             offerId={opportunity.offerId as string}
-            channels={pendingChannels.map((channel) => ({ id: channel.id, name: channel.name }))}
+            channels={pendingChannels.map((channel) => ({
+              id: channel.id,
+              name: `${channel.type} — ${channel.name}`,
+            }))}
           />
         </div>
       ) : null}
 
-      {publishable && telegramChannels.length === 0 ? (
+      {publishable && manualChannels.length > 0 && manualPreviews.length > 0 ? (
+        <ManualPublish
+          offerId={opportunity.offerId as string}
+          channels={manualChannels.map((channel) => ({
+            id: channel.id,
+            name: channel.name,
+            provider: channel.type,
+          }))}
+          previews={manualPreviews}
+          confirmAction={confirmManualPublication}
+        />
+      ) : null}
+
+      {publishable && publishableChannels.length === 0 && manualChannels.length === 0 ? (
         <p className="muted" style={{ fontSize: 12 }}>
-          Nenhum canal Telegram ativo. Cadastre um em <Link href="/channels">Canais</Link>.
+          Nenhum canal ativo. Cadastre um em <Link href="/channels">Canais</Link>.
+        </p>
+      ) : null}
+
+      {publishable && publishableChannels.length === 0 && manualChannels.length > 0 ? (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Nenhum canal com publicacao automatica. Cadastre um Telegram ou Facebook em{' '}
+          <Link href="/channels">Canais</Link>.
         </p>
       ) : null}
 

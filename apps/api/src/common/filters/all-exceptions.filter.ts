@@ -15,6 +15,10 @@ import {
   TelegramError,
   TelegramFailure,
 } from '../../modules/distribution/telegram/telegram.errors';
+import {
+  FacebookError,
+  FacebookFailure,
+} from '../../modules/distribution/facebook/facebook.errors';
 import type { Request, Response } from 'express';
 
 interface ErrorBody {
@@ -90,6 +94,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (exception instanceof TelegramError) {
       const { status, error } = TELEGRAM_STATUS[exception.failure];
+      return { status, error, message: exception.message };
+    }
+
+    if (exception instanceof FacebookError) {
+      const { status, error } = FACEBOOK_STATUS[exception.failure];
       return { status, error, message: exception.message };
     }
 
@@ -183,6 +192,24 @@ const TELEGRAM_STATUS: Record<TelegramFailure, { status: number; error: string }
   invalid_media: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
   invalid_message: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
   bot_unauthorized: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
+  unknown_outcome: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
+  rate_limited: { status: HttpStatus.TOO_MANY_REQUESTS, error: 'Too Many Requests' },
+  timeout: { status: HttpStatus.GATEWAY_TIMEOUT, error: 'Gateway Timeout' },
+  unavailable: { status: HttpStatus.SERVICE_UNAVAILABLE, error: 'Service Unavailable' },
+};
+
+/**
+ * Falhas da Meta viram status interno acionavel. Token invalido/expirado e 502
+ * porque e configuracao nossa; o que o operador corrige na propria Page ou no
+ * conteudo e 422.
+ */
+const FACEBOOK_STATUS: Record<FacebookFailure, { status: number; error: string }> = {
+  invalid_page: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  permission_denied: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  invalid_content: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  invalid_media: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  unauthorized: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
+  expired_token: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
   unknown_outcome: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
   rate_limited: { status: HttpStatus.TOO_MANY_REQUESTS, error: 'Too Many Requests' },
   timeout: { status: HttpStatus.GATEWAY_TIMEOUT, error: 'Gateway Timeout' },

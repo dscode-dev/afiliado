@@ -22,20 +22,22 @@ export default async function AutomationPage() {
       <header>
         <h2>Automacao</h2>
         <p>
-          Executa o pipeline Mercado Livre → Opportunity Engine → Telegram. A configuracao vem do
-          ambiente e nao e editavel por aqui.
+          Executa o pipeline Mercado Livre → Opportunity Engine → Telegram e Facebook. Cada
+          destino e opt-in independente, e a configuracao vem do ambiente.
         </p>
       </header>
 
       <div className="metrics">
-        <div className="metric">
-          <div className="value">
-            <span className={`badge ${status.autopilotEnabled ? 'approved' : 'rejected'}`}>
-              {status.autopilotEnabled ? 'ON' : 'OFF'}
-            </span>
+        {status.providers.map((provider) => (
+          <div className="metric" key={provider.provider}>
+            <div className="value">
+              <span className={`badge ${provider.autopilotEnabled ? 'approved' : 'rejected'}`}>
+                {provider.autopilotEnabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
+            <div className="label">Autopilot {provider.provider.toLowerCase()}</div>
           </div>
-          <div className="label">Autopilot</div>
-        </div>
+        ))}
         <div className="metric">
           <div className="value" style={{ fontSize: 15 }}>
             {status.running ? `rodando (${status.runningPhase})` : 'ocioso'}
@@ -59,7 +61,8 @@ export default async function AutomationPage() {
       <div className="card" style={{ marginTop: 20 }}>
         <h3>Executar agora</h3>
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-          Roda o mesmo ciclo do scheduler: sincroniza, atualiza popularidade, avalia e distribui.
+          Roda o mesmo ciclo do scheduler: sincroniza, atualiza popularidade, avalia e distribui
+          nos destinos habilitados.
           {!status.autopilotEnabled ? (
             <>
               {' '}
@@ -75,17 +78,42 @@ export default async function AutomationPage() {
         <h3>Politica de publicacao</h3>
         <div className="table-wrap">
           <table>
+            <thead>
+              <tr>
+                <th>Destino</th>
+                <th>Autopilot</th>
+                <th>Score minimo</th>
+                <th>Por hora</th>
+                <th>Por dia</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr>
-                <td>Score minimo</td>
-                <td className="num">{status.limits.minScore}</td>
-              </tr>
-              <tr>
-                <td>Maximo por hora / por dia</td>
-                <td className="num">
-                  {status.limits.maxPostsPerHour} / {status.limits.maxPostsPerDay}
-                </td>
-              </tr>
+              {status.providers.map((provider) => (
+                <tr key={provider.provider}>
+                  <td>{provider.provider}</td>
+                  <td>
+                    <span className={`badge ${provider.autopilotEnabled ? 'approved' : 'rejected'}`}>
+                      {provider.autopilotEnabled ? 'ON' : 'OFF'}
+                    </span>
+                  </td>
+                  <td className="num">{provider.minScore}</td>
+                  <td className="num">{provider.maxPostsPerHour}</td>
+                  <td className="num">{provider.maxPostsPerDay}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+          Limites sao por canal: publicar no Telegram nao consome a cota do Facebook.
+        </p>
+      </div>
+
+      <div className="card">
+        <h3>Limites gerais</h3>
+        <div className="table-wrap">
+          <table>
+            <tbody>
               <tr>
                 <td>Idade maxima da oferta</td>
                 <td className="num">{status.limits.maxOfferAgeHours}h</td>
@@ -154,6 +182,7 @@ export default async function AutomationPage() {
                   <thead>
                     <tr>
                       <th>Canal</th>
+                      <th>Destino</th>
                       <th>Publicados</th>
                       <th>Adiados</th>
                       <th>Cota restante</th>
@@ -163,6 +192,7 @@ export default async function AutomationPage() {
                     {last.distribution.channels.map((channel) => (
                       <tr key={channel.channelId}>
                         <td>{channel.channelName}</td>
+                        <td>{channel.provider}</td>
                         <td className="num">{channel.published}</td>
                         <td className="num">{channel.deferred}</td>
                         <td className="num">{channel.remainingQuota}</td>

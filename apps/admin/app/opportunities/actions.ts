@@ -7,6 +7,7 @@ import { optional, required } from '@/lib/form';
 import {
   AffiliateLink,
   EvaluationResult,
+  ManualPublicationResult,
   OperatorDecision,
   PublishResult,
 } from '@/lib/types';
@@ -101,8 +102,36 @@ export async function publishOpportunity(
   return {
     ok: true,
     message:
-      `Publicado em ${result.publication.channel?.name ?? 'canal'} ` +
-      `(mensagem ${result.publication.externalMessageId}` +
+      `Publicado em ${result.provider} — ${result.publication.channel?.name ?? 'canal'} ` +
+      `(id ${result.publication.externalMessageId}` +
       `${result.usedPhoto ? ', com imagem' : ', sem imagem'}).`,
+  };
+}
+
+/**
+ * Registra que o operador publicou manualmente no canal (WhatsApp).
+ * Nada e enviado para fora: apenas gravamos o resultado.
+ */
+export async function confirmManualPublication(
+  _state: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const offerId = required(formData, 'offerId');
+  const channelId = required(formData, 'channelId');
+
+  let result: ManualPublicationResult;
+  try {
+    result = await post<ManualPublicationResult>(`/offers/${offerId}/manual-publication`, {
+      channelId,
+    });
+  } catch (error) {
+    return { error: error instanceof ApiError ? error.message : 'Falha ao registrar' };
+  }
+
+  revalidateOpportunities();
+
+  return {
+    ok: true,
+    message: `Registrado como publicado em ${result.provider} — ${result.publication.channel?.name ?? 'canal'}.`,
   };
 }

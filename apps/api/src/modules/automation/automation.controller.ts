@@ -1,8 +1,9 @@
 import { Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { ChannelType } from '@prisma/client';
 import { AutomationConfig } from './automation.config';
 import { AutomationOrchestrator } from './automation.orchestrator';
 import { AutomationState } from './automation.state';
-import { AutomationStatus, CycleSummary } from './automation.types';
+import { AutomationStatus, CycleSummary, ProviderStatus } from './automation.types';
 import { Clock } from './clock';
 
 @Controller('automation')
@@ -26,7 +27,8 @@ export class AutomationController {
     const now = this.clock.now();
 
     return {
-      autopilotEnabled: this.config.autoPublishEnabled,
+      autopilotEnabled: this.config.anyAutoPublishEnabled,
+      providers: this.providerStatuses(),
       schedulerEnabled: this.config.schedulerEnabled,
       running: this.state.running,
       runningPhase: this.state.runningPhase,
@@ -38,15 +40,27 @@ export class AutomationController {
         distribution: this.nextRun('distribution', this.config.distributionIntervalMinutes),
       },
       limits: {
-        minScore: this.config.minScore,
-        maxPostsPerHour: this.config.maxPostsPerHour,
-        maxPostsPerDay: this.config.maxPostsPerDay,
         maxOfferAgeHours: this.config.maxOfferAgeHours,
         publishWindow: `${this.config.publishStartHour}h-${this.config.publishEndHour}h`,
         timezone: this.config.timezone,
         withinPublishWindow: this.config.isWithinPublishWindow(now),
       },
     };
+  }
+
+  /** Um destino por linha: o operador precisa ver quem esta ligado. */
+  private providerStatuses(): ProviderStatus[] {
+    return [ChannelType.TELEGRAM, ChannelType.FACEBOOK].map((provider) => {
+      const policy = this.config.policyFor(provider);
+
+      return {
+        provider,
+        autopilotEnabled: policy.enabled,
+        minScore: policy.minScore,
+        maxPostsPerHour: policy.maxPostsPerHour,
+        maxPostsPerDay: policy.maxPostsPerDay,
+      };
+    });
   }
 
   /** Estimativa a partir da ultima execucao; null enquanto o job nunca rodou. */

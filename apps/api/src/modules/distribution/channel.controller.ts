@@ -13,7 +13,7 @@ import {
 import { Paginated } from '../../common/dto/pagination.dto';
 import { ChannelView } from './channel.entity';
 import { ChannelService } from './channel.service';
-import { TelegramPublisherService } from './telegram/telegram-publisher.service';
+import { PublicationDispatcher } from './publish/publication-dispatcher.service';
 import { CreateChannelDto } from './dto/create-channel.dto';
 import { ListChannelsQueryDto } from './dto/list-channels.dto';
 import { UpdateChannelDto } from './dto/update-channel.dto';
@@ -22,7 +22,7 @@ import { UpdateChannelDto } from './dto/update-channel.dto';
 export class ChannelController {
   constructor(
     private readonly channels: ChannelService,
-    private readonly publisher: TelegramPublisherService,
+    private readonly publisher: PublicationDispatcher,
   ) {}
 
   @Get()

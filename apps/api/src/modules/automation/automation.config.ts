@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ChannelType } from '@prisma/client';
 
 /**
  * Configuracao do autopilot, lida de environment variables.
@@ -16,13 +17,12 @@ export class AutomationConfig {
   readonly distributionIntervalMinutes: number;
 
   /**
-   * Publicacao automatica. Default FALSE: autopilot e opt-in, mesmo com o
-   * Telegram totalmente configurado.
+   * Politica de publicacao por provider.
+   *
+   * Default de `enabled` e FALSE em todos: cada destino e opt-in
+   * independente, mesmo com a integracao totalmente configurada.
    */
-  readonly autoPublishEnabled: boolean;
-  readonly maxPostsPerHour: number;
-  readonly maxPostsPerDay: number;
-  readonly minScore: number;
+  readonly providers: Record<ChannelType, ProviderPolicy>;
   readonly maxOfferAgeHours: number;
 
   /** Janela de publicacao [start, end) na timezone da aplicacao. */
@@ -36,15 +36,53 @@ export class AutomationConfig {
     this.evaluationIntervalMinutes = readNumber(env.OPPORTUNITY_EVALUATION_INTERVAL_MINUTES, 30, 1);
     this.distributionIntervalMinutes = readNumber(env.TELEGRAM_DISTRIBUTION_INTERVAL_MINUTES, 15, 1);
 
-    this.autoPublishEnabled = readBoolean(env.TELEGRAM_AUTO_PUBLISH_ENABLED, false);
-    this.maxPostsPerHour = readNumber(env.TELEGRAM_MAX_POSTS_PER_HOUR, 2, 0);
-    this.maxPostsPerDay = readNumber(env.TELEGRAM_MAX_POSTS_PER_DAY, 12, 0);
-    this.minScore = readNumber(env.TELEGRAM_MIN_SCORE, 85, 0);
+    this.providers = {
+      TELEGRAM: {
+        enabled: readBoolean(env.TELEGRAM_AUTO_PUBLISH_ENABLED, false),
+        maxPostsPerHour: readNumber(env.TELEGRAM_MAX_POSTS_PER_HOUR, 2, 0),
+        maxPostsPerDay: readNumber(env.TELEGRAM_MAX_POSTS_PER_DAY, 12, 0),
+        minScore: readNumber(env.TELEGRAM_MIN_SCORE, 85, 0),
+      },
+      FACEBOOK: {
+        enabled: readBoolean(env.FACEBOOK_AUTO_PUBLISH_ENABLED, false),
+        // Feed de Page tolera menos volume que canal de Telegram.
+        maxPostsPerHour: readNumber(env.FACEBOOK_MAX_POSTS_PER_HOUR, 1, 0),
+        maxPostsPerDay: readNumber(env.FACEBOOK_MAX_POSTS_PER_DAY, 6, 0),
+        minScore: readNumber(env.FACEBOOK_MIN_SCORE, 85, 0),
+      },
+      // Sem publisher nesta versao: nunca elegivel.
+      WHATSAPP: { enabled: false, maxPostsPerHour: 0, maxPostsPerDay: 0, minScore: 101 },
+    };
     this.maxOfferAgeHours = readNumber(env.TELEGRAM_MAX_OFFER_AGE_HOURS, 24, 1);
 
     this.publishStartHour = readNumber(env.TELEGRAM_PUBLISH_START_HOUR, 7, 0);
     this.publishEndHour = readNumber(env.TELEGRAM_PUBLISH_END_HOUR, 22, 0);
     this.timezone = env.APP_TIMEZONE || 'America/Sao_Paulo';
+  }
+
+  policyFor(type: ChannelType): ProviderPolicy {
+    return this.providers[type];
+  }
+
+  /** Algum destino com publicacao automatica ligada? */
+  get anyAutoPublishEnabled(): boolean {
+    return Object.values(this.providers).some((policy) => policy.enabled);
+  }
+
+  /**
+   * Piso de score da consulta ampla de candidatos; o filtro fino por provider
+   * acontece depois, por canal.
+   *
+   * Com nenhum destino habilitado cai para o menor score configurado entre os
+   * destinos publicaveis - assim o relatorio continua mostrando quantas
+   * oportunidades existiriam se o autopilot fosse ligado.
+   */
+  get selectionMinScore(): number {
+    const publishable = [this.providers.TELEGRAM, this.providers.FACEBOOK];
+    const enabled = publishable.filter((policy) => policy.enabled);
+    const considered = enabled.length > 0 ? enabled : publishable;
+
+    return Math.min(...considered.map((policy) => policy.minScore));
   }
 
   /**
@@ -74,6 +112,13 @@ export class AutomationConfig {
 
     return start < end ? hour >= start && hour < end : hour >= start || hour < end;
   }
+}
+
+export interface ProviderPolicy {
+  enabled: boolean;
+  maxPostsPerHour: number;
+  maxPostsPerDay: number;
+  minScore: number;
 }
 
 function readNumber(raw: string | undefined, fallback: number, min: number): number {

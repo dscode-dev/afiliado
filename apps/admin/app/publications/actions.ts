@@ -22,6 +22,6 @@ export async function retryPublication(_state: FormState, formData: FormData): P
 
   return {
     ok: true,
-    message: `Publicado em ${result.publication.channel?.name ?? 'canal'} (mensagem ${result.publication.externalMessageId}).`,
+    message: `Publicado em ${result.provider} — ${result.publication.channel?.name ?? 'canal'} (id ${result.publication.externalMessageId}).`,
   };
 }
