@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, patch, post } from '@/lib/api';
 import { FormState } from '@/components/form-state';
 import { optional, required } from '@/lib/form';
-import { Channel } from '@/lib/types';
+import { Channel, ChannelTestResult } from '@/lib/types';
 
 export async function createChannel(_state: FormState, formData: FormData): Promise<FormState> {
   const rawConfiguration = optional(formData, 'configuration');
@@ -42,4 +42,24 @@ export async function setChannelActive(formData: FormData): Promise<void> {
 
   revalidatePath('/channels');
   revalidatePath('/dashboard');
+}
+
+/**
+ * Valida o canal contra a Bot API sem publicar nada (getChat).
+ * Confirma que o bot enxerga o canal antes de o operador tentar publicar.
+ */
+export async function testChannel(_state: FormState, formData: FormData): Promise<FormState> {
+  const id = required(formData, 'id');
+
+  let result: ChannelTestResult;
+  try {
+    result = await post<ChannelTestResult>(`/channels/${id}/test`);
+  } catch (error) {
+    return { error: error instanceof ApiError ? error.message : 'Falha ao testar o canal' };
+  }
+
+  return {
+    ok: true,
+    message: `Canal acessivel pelo bot: ${result.chat.title ?? result.chat.id}`,
+  };
 }

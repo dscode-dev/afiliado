@@ -11,6 +11,10 @@ import {
   MarketplaceFailure,
   MercadoLivreError,
 } from '../../modules/marketplace/mercado-livre/mercado-livre.errors';
+import {
+  TelegramError,
+  TelegramFailure,
+} from '../../modules/distribution/telegram/telegram.errors';
 import type { Request, Response } from 'express';
 
 interface ErrorBody {
@@ -84,6 +88,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return this.resolveMarketplace(exception);
     }
 
+    if (exception instanceof TelegramError) {
+      const { status, error } = TELEGRAM_STATUS[exception.failure];
+      return { status, error, message: exception.message };
+    }
+
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       return this.resolvePrisma(exception);
     }
@@ -154,6 +163,27 @@ const MARKETPLACE_STATUS: Record<MarketplaceFailure, { status: number; error: st
   invalid_item: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
   not_found: { status: HttpStatus.NOT_FOUND, error: 'Not Found' },
   unauthorized: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
+  rate_limited: { status: HttpStatus.TOO_MANY_REQUESTS, error: 'Too Many Requests' },
+  timeout: { status: HttpStatus.GATEWAY_TIMEOUT, error: 'Gateway Timeout' },
+  unavailable: { status: HttpStatus.SERVICE_UNAVAILABLE, error: 'Service Unavailable' },
+};
+
+/**
+ * Falhas do Telegram viram status interno acionavel. `bot_unauthorized` e 502
+ * porque token invalido e problema de configuracao nossa; os erros que o
+ * operador corrige no proprio canal sao 422.
+ */
+const TELEGRAM_STATUS: Record<TelegramFailure, { status: number; error: string }> = {
+  invalid_channel: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  chat_not_found: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  bot_not_administrator: {
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    error: 'Unprocessable Entity',
+  },
+  invalid_media: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  invalid_message: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  bot_unauthorized: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
+  unknown_outcome: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
   rate_limited: { status: HttpStatus.TOO_MANY_REQUESTS, error: 'Too Many Requests' },
   timeout: { status: HttpStatus.GATEWAY_TIMEOUT, error: 'Gateway Timeout' },
   unavailable: { status: HttpStatus.SERVICE_UNAVAILABLE, error: 'Service Unavailable' },

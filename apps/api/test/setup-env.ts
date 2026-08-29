@@ -25,3 +25,16 @@ process.env.MELI_SITE_ID = 'MLB';
 process.env.MELI_TIMEOUT_MS = '500';
 process.env.MELI_SYNC_CONCURRENCY = '4';
 delete process.env.MELI_REFRESH_TOKEN;
+
+// A suite nunca fala com o Telegram real: `TelegramFakeServer` sobrescreve
+// TELEGRAM_API_BASE_URL por teste. O token aqui e fabricado de proposito.
+process.env.TELEGRAM_BOT_TOKEN = '123456789:TEST-BOT-TOKEN-NAO-REAL';
+process.env.TELEGRAM_TIMEOUT_MS = '500';
+process.env.TELEGRAM_MAX_RETRY_AFTER_SECONDS = '2';
+
+// Nenhum timer real na suite: os jobs sao exercitados chamando o scheduler
+// diretamente. O autopilot fica no default de producao (OFF) - os testes que
+// precisam dele ligado sobrescrevem a env antes de criar o app.
+process.env.AUTOMATION_SCHEDULER_ENABLED = 'false';
+process.env.TELEGRAM_AUTO_PUBLISH_ENABLED = 'false';
+process.env.APP_TIMEZONE = 'America/Sao_Paulo';

@@ -34,6 +34,14 @@ export default async function AffiliateLinksPage() {
       placeholder: 'https://mercadolivre.com/sec/...',
     },
     { kind: 'input', name: 'label', label: 'Tag / rotulo', type: 'text' },
+    {
+      kind: 'input',
+      name: 'sourceLabel',
+      label: 'Origem',
+      type: 'text',
+      placeholder: 'painel-afiliados',
+    },
+    { kind: 'input', name: 'channelTag', label: 'Canal', type: 'text', placeholder: 'telegram' },
   ];
 
   return (
@@ -68,6 +76,8 @@ export default async function AffiliateLinksPage() {
                   <th>Produto</th>
                   <th>URL</th>
                   <th>Tag</th>
+                  <th>Origem</th>
+                  <th>Canal</th>
                   <th>Estado</th>
                   <th>Criado em</th>
                   <th />
@@ -83,6 +93,8 @@ export default async function AffiliateLinksPage() {
                       </a>
                     </td>
                     <td>{link.label ?? '—'}</td>
+                    <td>{link.sourceLabel ?? '—'}</td>
+                    <td>{link.channelTag ?? '—'}</td>
                     <td>
                       <ActiveBadge active={link.active} />
                     </td>

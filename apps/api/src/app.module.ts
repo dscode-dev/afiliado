@@ -5,6 +5,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { AffiliateModule } from './modules/affiliate/affiliate.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { AutomationModule } from './modules/automation/automation.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { DistributionModule } from './modules/distribution/distribution.module';
 import { MarketplaceModule } from './modules/marketplace/marketplace.module';
@@ -27,6 +28,7 @@ import { OpportunityModule } from './modules/opportunity/opportunity.module';
     OpportunityModule,
     DistributionModule,
     AnalyticsModule,
+    AutomationModule,
   ],
 })
 export class AppModule {}

@@ -29,6 +29,20 @@ enum OfferStatus {
   EXPIRED
 }
 
+/// Recomendacao do Opportunity Engine para um produto.
+enum OpportunityStatus {
+  IGNORE
+  CANDIDATE
+  APPROVED
+  NOT_ELIGIBLE
+}
+
+/// Decisao humana explicita, que sobrepoe a recomendacao do engine.
+enum OperatorDecision {
+  APPROVED
+  REJECTED
+}
+
 enum PublicationStatus {
   PENDING
   PUBLISHED
@@ -57,6 +71,14 @@ model Product {
   currencyId        String?     @db.VarChar(8)
   /// Status do anuncio no marketplace (active | paused | closed | ...).
   marketplaceStatus String?     @db.VarChar(32)
+  /// Posicao nos mais vendidos da categoria; null = ausente do ranking.
+  highlightPosition Int?
+  /// Quando a popularidade foi verificada pela ultima vez (null = nunca).
+  highlightCheckedAt DateTime?  @db.Timestamptz(3)
+  /// Reputacao do vendedor (ex.: "5_green"), coletada na sincronizacao.
+  sellerReputationLevel String? @db.VarChar(32)
+  /// Status de power seller (ex.: "platinum"), quando o vendedor possui.
+  sellerStatus      String?     @db.VarChar(32)
   lastSyncedAt      DateTime?   @db.Timestamptz(3)
   createdAt         DateTime    @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime    @updatedAt @db.Timestamptz(3)
@@ -64,6 +86,7 @@ model Product {
   affiliateLinks AffiliateLink[]
   offers         Offer[]
   priceSnapshots PriceSnapshot[]
+  evaluation     OpportunityEvaluation?
 
   @@unique([marketplace, marketplaceItemId])
   @@index([active, createdAt(sort: Desc)])
@@ -95,6 +118,10 @@ model AffiliateLink {
   productId String   @db.Uuid
   url       String   @db.VarChar(2048)
   label     String?  @db.VarChar(120)
+  /// De onde o link veio (ex.: "painel-afiliados", "campanha-x").
+  sourceLabel String? @db.VarChar(120)
+  /// Canal a que o link se destina, quando houver segmentacao por canal.
+  channelTag  String? @db.VarChar(120)
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
@@ -139,6 +166,9 @@ model Offer {
   product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   publications Publication[]
 
+  /// Identidade da oportunidade: um produto a um determinado preco.
+  /// Garante no banco a idempotencia da geracao automatica de ofertas.
+  @@unique([productId, price])
   @@index([status, detectedAt(sort: Desc)])
   @@index([productId])
   @@map("offers")
@@ -160,8 +190,42 @@ model Publication {
   offer   Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Restrict)
 
+  /// Uma oferta e publicada no maximo uma vez por canal. A garantia vive no
+  /// banco: e ela que impede publicacao duplicada sob chamadas concorrentes.
+  @@unique([offerId, channelId])
   @@index([status, createdAt(sort: Desc)])
   @@index([offerId])
   @@index([channelId])
   @@map("publications")
+}
+
+/// Ultima avaliacao do Opportunity Engine para um produto.
+///
+/// Uma linha por produto (upsert), e nao um historico: o fluxo operacional so
+/// precisa do estado atual, e Offer ja registra as oportunidades geradas.
+/// Guardar historico de avaliacao seria complexidade sem caso de uso hoje.
+model OpportunityEvaluation {
+  id          String            @id @default(uuid()) @db.Uuid
+  productId   String            @unique @db.Uuid
+  score       Int
+  /// Recomendacao do engine, sempre derivada do score e da elegibilidade.
+  status      OpportunityStatus
+  /// Componentes do score (earned/max por componente), para explicabilidade.
+  breakdown   Json
+  /// Frases legiveis que justificam o score ao operador.
+  reasons     String[]
+  evaluatedAt DateTime          @default(now()) @db.Timestamptz(3)
+
+  /// Decisao humana. Preservada entre reavaliacoes - o engine nunca a apaga.
+  operatorDecision   OperatorDecision?
+  operatorDecidedAt  DateTime?         @db.Timestamptz(3)
+  operatorNote       String?           @db.VarChar(300)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([status, score(sort: Desc)])
+  @@map("opportunity_evaluations")
 }

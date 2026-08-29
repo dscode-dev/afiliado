@@ -16,6 +16,16 @@ export class UpdateAffiliateLinkDto {
   label?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sourceLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  channelTag?: string;
+
+  @IsOptional()
   @IsBoolean()
   active?: boolean;
 }

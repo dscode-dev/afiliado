@@ -4,6 +4,7 @@ import { RowActionForm } from '@/components/row-action-form';
 import { ActiveBadge, Empty, formatDate } from '@/components/ui';
 import { getList } from '@/lib/api';
 import { Channel, CHANNEL_TYPES } from '@/lib/types';
+import { TestChannelButton } from './test-channel-button';
 import { createChannel, setChannelActive } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -41,8 +42,9 @@ export default async function ChannelsPage() {
       <header>
         <h2>Canais</h2>
         <p>
-          Destinos de publicacao. Credenciais ficam em environment variables e nunca neste
-          cadastro.
+          Destinos de publicacao. Somente TELEGRAM e operacional nesta versao. O token do bot
+          fica em environment variables e nunca neste cadastro - para Telegram, informe o canal
+          em <code>externalIdentifier</code> (ex.: <code>@meu_canal</code>).
         </p>
       </header>
 
@@ -83,12 +85,17 @@ export default async function ChannelsPage() {
                     </td>
                     <td>{formatDate(channel.createdAt)}</td>
                     <td>
-                      <RowActionForm
-                        action={setChannelActive}
-                        id={channel.id}
-                        values={{ active: String(!channel.active) }}
-                        label={channel.active ? 'Desativar' : 'Ativar'}
-                      />
+                      <div className="row-actions">
+                        {channel.type === 'TELEGRAM' && channel.externalIdentifier ? (
+                          <TestChannelButton id={channel.id} />
+                        ) : null}
+                        <RowActionForm
+                          action={setChannelActive}
+                          id={channel.id}
+                          values={{ active: String(!channel.active) }}
+                          label={channel.active ? 'Desativar' : 'Ativar'}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}

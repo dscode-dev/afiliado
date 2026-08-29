@@ -1,11 +1,25 @@
-import { Channel, ChannelType, Offer, Publication, PublicationStatus } from '@prisma/client';
+import {
+  Channel,
+  ChannelType,
+  Offer,
+  Product,
+  Publication,
+  PublicationStatus,
+} from '@prisma/client';
+import { toMoneyString } from '../../common/money';
 
 export interface PublicationView {
   id: string;
   offerId: string;
   channelId: string;
   channel: { id: string; name: string; type: ChannelType } | null;
-  offer: { id: string; productId: string; status: string } | null;
+  offer: {
+    id: string;
+    productId: string;
+    status: string;
+    price: string;
+    productTitle: string | null;
+  } | null;
   status: PublicationStatus;
   externalMessageId: string | null;
   scheduledAt: string | null;
@@ -17,7 +31,7 @@ export interface PublicationView {
 
 type PublicationWithRelations = Publication & {
   channel?: Channel | null;
-  offer?: Offer | null;
+  offer?: (Offer & { product?: Product | null }) | null;
 };
 
 export function toPublicationView(publication: PublicationWithRelations): PublicationView {
@@ -37,6 +51,8 @@ export function toPublicationView(publication: PublicationWithRelations): Public
           id: publication.offer.id,
           productId: publication.offer.productId,
           status: publication.offer.status,
+          price: toMoneyString(publication.offer.price) as string,
+          productTitle: publication.offer.product?.title ?? null,
         }
       : null,
     status: publication.status,

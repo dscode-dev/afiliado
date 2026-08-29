@@ -11,10 +11,12 @@ const NAV = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/products', label: 'Produtos' },
   { href: '/products/discover', label: 'Mais vendidos' },
+  { href: '/opportunities', label: 'Oportunidades' },
   { href: '/affiliate-links', label: 'Links de afiliado' },
   { href: '/channels', label: 'Canais' },
   { href: '/offers', label: 'Ofertas' },
   { href: '/publications', label: 'Publicacoes' },
+  { href: '/automation', label: 'Automacao' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

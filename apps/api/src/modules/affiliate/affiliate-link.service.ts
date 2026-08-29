@@ -48,6 +48,8 @@ export class AffiliateLinkService {
         productId: dto.productId,
         url: dto.url,
         label: dto.label ?? null,
+        sourceLabel: dto.sourceLabel ?? null,
+        channelTag: dto.channelTag ?? null,
         ...(dto.active === undefined ? {} : { active: dto.active }),
       },
       include: { product: true },
@@ -71,6 +73,8 @@ export class AffiliateLinkService {
       data: {
         ...(dto.url === undefined ? {} : { url: dto.url }),
         ...(dto.label === undefined ? {} : { label: dto.label }),
+        ...(dto.sourceLabel === undefined ? {} : { sourceLabel: dto.sourceLabel }),
+        ...(dto.channelTag === undefined ? {} : { channelTag: dto.channelTag }),
         ...(dto.active === undefined ? {} : { active: dto.active }),
       },
       include: { product: true },

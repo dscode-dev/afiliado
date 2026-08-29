@@ -4,11 +4,19 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, patch, post } from '@/lib/api';
 import { FormState } from '@/components/form-state';
 import { optional, required } from '@/lib/form';
-import { BatchSyncReport, Product, SyncResult } from '@/lib/types';
+import {
+  BatchEvaluationReport,
+  BatchSyncReport,
+  EvaluationResult,
+  PopularityReport,
+  Product,
+  SyncResult,
+} from '@/lib/types';
 
 function revalidateProducts(): void {
   revalidatePath('/products');
   revalidatePath('/dashboard');
+  revalidatePath('/opportunities');
 }
 
 export async function createProduct(_state: FormState, formData: FormData): Promise<FormState> {
@@ -93,4 +101,56 @@ function describeSync(result: SyncResult): string {
   if (result.outcome === 'updated') return `Produto atualizado: ${result.product.title}${suffix}`;
 
   return `Sem alteracoes: ${result.product.title}`;
+}
+
+/** Avalia um unico produto no Opportunity Engine. */
+export async function evaluateProduct(formData: FormData): Promise<void> {
+  const id = required(formData, 'id');
+
+  await post<EvaluationResult>(`/products/${id}/evaluate`);
+
+  revalidateProducts();
+}
+
+/** Avalia todos os produtos ativos e resume o resultado. */
+export async function evaluateActiveProducts(_state: FormState): Promise<FormState> {
+  let report: BatchEvaluationReport;
+  try {
+    report = await post<BatchEvaluationReport>('/products/evaluate');
+  } catch (error) {
+    return { error: error instanceof ApiError ? error.message : 'Falha ao avaliar os ativos' };
+  }
+
+  revalidateProducts();
+
+  return {
+    ok: true,
+    message:
+      `Avaliacao concluida - total ${report.total}, aprovadas ${report.approved}, ` +
+      `candidatas ${report.candidate}, ignoradas ${report.ignored}, ` +
+      `sem link ${report.notEligible}, falhas ${report.failed} ` +
+      `(${report.offersCreated} oferta(s) criada(s))`,
+  };
+}
+
+/** Atualiza o sinal de popularidade a partir dos mais vendidos oficiais. */
+export async function refreshPopularity(_state: FormState): Promise<FormState> {
+  let report: PopularityReport;
+  try {
+    report = await post<PopularityReport>('/products/refresh-popularity');
+  } catch (error) {
+    return { error: error instanceof ApiError ? error.message : 'Falha ao atualizar popularidade' };
+  }
+
+  revalidateProducts();
+
+  return {
+    ok: true,
+    message:
+      `Popularidade atualizada - ${report.categories} categoria(s), ` +
+      `${report.productsChecked} produto(s) verificado(s), ${report.productsRanked} no ranking` +
+      (report.failedCategories.length > 0
+        ? ` (falhas: ${report.failedCategories.map((f) => f.categoryId).join(', ')})`
+        : ''),
+  };
 }

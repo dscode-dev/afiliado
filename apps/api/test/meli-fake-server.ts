@@ -39,6 +39,7 @@ export class MeliFakeServer {
   readonly categories = new Map<string, { id: string; name: string }>();
   readonly highlights = new Map<string, { id: string; position: number; type: string }[]>();
   readonly catalogProducts = new Map<string, unknown>();
+  readonly users = new Map<string, unknown>();
 
   /** Overrides por prefixo de caminho, aplicados na ordem de insercao. */
   private overrides: { match: string; override: Override }[] = [];
@@ -78,6 +79,7 @@ export class MeliFakeServer {
     this.categories.clear();
     this.highlights.clear();
     this.catalogProducts.clear();
+    this.users.clear();
     this.overrides = [];
     this.requests.length = 0;
     this.tokenRequests = 0;
@@ -94,6 +96,14 @@ export class MeliFakeServer {
 
   failTokenWith(status: number): void {
     this.tokenStatus = status;
+  }
+
+  /** Registra a reputacao de um vendedor no formato oficial de /users/:id. */
+  seedSeller(sellerId: string, levelId: string | null, powerSeller?: string | null): void {
+    this.users.set(sellerId, {
+      id: Number(sellerId),
+      seller_reputation: { level_id: levelId, power_seller_status: powerSeller ?? null },
+    });
   }
 
   /** Registra item + preco de uma vez, no formato oficial. */
@@ -175,6 +185,12 @@ export class MeliFakeServer {
     if (highlight) {
       const content = this.highlights.get(highlight[2]);
       return content ? json(res, 200, { content }) : json(res, 404, notFound());
+    }
+
+    const user = /^\/users\/([^/]+)$/.exec(path);
+    if (user) {
+      const payload = this.users.get(user[1]);
+      return payload ? json(res, 200, payload) : json(res, 404, notFound());
     }
 
     const product = /^\/products\/([^/]+)$/.exec(path);

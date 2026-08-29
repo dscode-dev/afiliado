@@ -13,6 +13,18 @@ export class CreateAffiliateLinkDto {
   @MaxLength(120)
   label?: string;
 
+  /** De onde o link veio (ex.: "painel-afiliados"). Rastreio de origem. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sourceLabel?: string;
+
+  /** Canal a que o link se destina, quando houver segmentacao por canal. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  channelTag?: string;
+
   @IsOptional()
   @IsBoolean()
   active?: boolean;

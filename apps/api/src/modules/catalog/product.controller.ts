@@ -28,6 +28,12 @@ import {
   PriceSnapshotService,
   PriceSnapshotView,
 } from './price-snapshot.service';
+import { PopularityReport, PopularityService } from './popularity.service';
+import { OpportunityService } from '../opportunity/opportunity.service';
+import {
+  BatchEvaluationReport,
+  EvaluationResult,
+} from '../opportunity/opportunity.types';
 
 @Controller('products')
 export class ProductController {
@@ -35,6 +41,8 @@ export class ProductController {
     private readonly products: ProductService,
     private readonly sync: ProductSyncService,
     private readonly snapshots: PriceSnapshotService,
+    private readonly opportunities: OpportunityService,
+    private readonly popularity: PopularityService,
   ) {}
 
   @Get()
@@ -60,6 +68,23 @@ export class ProductController {
     return this.sync.syncActive();
   }
 
+  /**
+   * Atualiza a popularidade dos ativos a partir dos mais vendidos oficiais.
+   * Uma chamada externa por categoria distinta, nao por produto.
+   */
+  @Post('refresh-popularity')
+  @HttpCode(HttpStatus.OK)
+  refreshPopularity(): Promise<PopularityReport> {
+    return this.popularity.refreshActive();
+  }
+
+  /** Avalia todos os produtos ativos. Falha de um produto nao aborta o lote. */
+  @Post('evaluate')
+  @HttpCode(HttpStatus.OK)
+  evaluateActive(): Promise<BatchEvaluationReport> {
+    return this.opportunities.evaluateActive();
+  }
+
   @Get(':id')
   findById(@Param('id', ParseUUIDPipe) id: string): Promise<ProductView> {
     return this.products.findById(id);
@@ -77,6 +102,13 @@ export class ProductController {
   @HttpCode(HttpStatus.OK)
   syncOne(@Param('id', ParseUUIDPipe) id: string): Promise<SyncResult> {
     return this.sync.syncById(id);
+  }
+
+  /** Avalia um produto no Opportunity Engine e aplica a politica de Offer. */
+  @Post(':id/evaluate')
+  @HttpCode(HttpStatus.OK)
+  evaluateOne(@Param('id', ParseUUIDPipe) id: string): Promise<EvaluationResult> {
+    return this.opportunities.evaluateProduct(id);
   }
 
   /** Historico de precos, do mais recente para o mais antigo. */

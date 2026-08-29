@@ -6,6 +6,8 @@ export interface AffiliateLinkView {
   product: { id: string; title: string; marketplaceItemId: string } | null;
   url: string;
   label: string | null;
+  sourceLabel: string | null;
+  channelTag: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -26,6 +28,8 @@ export function toAffiliateLinkView(link: AffiliateLinkWithProduct): AffiliateLi
       : null,
     url: link.url,
     label: link.label,
+    sourceLabel: link.sourceLabel,
+    channelTag: link.channelTag,
     active: link.active,
     createdAt: link.createdAt.toISOString(),
     updatedAt: link.updatedAt.toISOString(),

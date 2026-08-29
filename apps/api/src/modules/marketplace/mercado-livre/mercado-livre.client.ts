@@ -9,6 +9,7 @@ import {
   MeliItem,
   MeliMultiGetEntry,
   MeliPrices,
+  MeliUser,
 } from './mercado-livre.types';
 
 /** Uma unica retentativa, e apenas para falhas transitorias seguras (GET). */
@@ -105,6 +106,11 @@ export class MercadoLivreClient {
       'get_category_highlights',
       categoryId,
     );
+  }
+
+  /** GET /users/:userId - reputacao do vendedor, usada no Opportunity Engine. */
+  getUser(userId: string): Promise<MeliUser> {
+    return this.get<MeliUser>(`/users/${encodeURIComponent(userId)}`, 'get_user', userId);
   }
 
   /** GET /products/:productId - resolve entradas de highlight do tipo PRODUCT. */

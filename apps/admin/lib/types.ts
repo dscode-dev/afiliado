@@ -37,6 +37,10 @@ export interface Product {
   sellerId: string | null;
   currencyId: string | null;
   marketplaceStatus: string | null;
+  highlightPosition: number | null;
+  highlightCheckedAt: string | null;
+  sellerReputationLevel: string | null;
+  sellerStatus: string | null;
   currentPrice: string;
   originalPrice: string | null;
   active: boolean;
@@ -93,6 +97,8 @@ export interface AffiliateLink {
   product: ProductSummary | null;
   url: string;
   label: string | null;
+  sourceLabel: string | null;
+  channelTag: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -127,7 +133,13 @@ export interface Publication {
   offerId: string;
   channelId: string;
   channel: { id: string; name: string; type: ChannelType } | null;
-  offer: { id: string; productId: string; status: string } | null;
+  offer: {
+    id: string;
+    productId: string;
+    status: string;
+    price: string;
+    productTitle: string | null;
+  } | null;
   status: PublicationStatus;
   externalMessageId: string | null;
   scheduledAt: string | null;
@@ -144,4 +156,163 @@ export interface DashboardSummary {
   openOffers: number;
   publications: number;
   pendingPublications: number;
+}
+
+export type OpportunityStatus = 'IGNORE' | 'CANDIDATE' | 'APPROVED' | 'NOT_ELIGIBLE';
+export type OperatorDecision = 'APPROVED' | 'REJECTED';
+
+export type ComponentName =
+  | 'discount'
+  | 'priceHistory'
+  | 'popularity'
+  | 'seller'
+  | 'freshness';
+
+export type Breakdown = Record<ComponentName, { earned: number; max: number }>;
+
+/** Rotulos exibidos no detalhamento do score, na ordem do peso. */
+export const COMPONENT_LABELS: { key: ComponentName; label: string }[] = [
+  { key: 'discount', label: 'Desconto' },
+  { key: 'priceHistory', label: 'Historico' },
+  { key: 'popularity', label: 'Popularidade' },
+  { key: 'seller', label: 'Vendedor' },
+  { key: 'freshness', label: 'Freshness' },
+];
+
+export interface Opportunity {
+  productId: string;
+  title: string;
+  category: string | null;
+  permalink: string | null;
+  imageUrl: string | null;
+  price: string;
+  originalPrice: string | null;
+  score: number;
+  status: OpportunityStatus;
+  operatorDecision: OperatorDecision | null;
+  operatorDecidedAt: string | null;
+  operatorNote: string | null;
+  effectiveStatus: string;
+  breakdown: Breakdown;
+  reasons: string[];
+  evaluatedAt: string;
+  hasActiveAffiliateLink: boolean;
+  affiliateLinkUrl: string | null;
+  offerId: string | null;
+  offerStatus: OfferStatus | null;
+}
+
+export interface EvaluationResult {
+  productId: string;
+  productTitle: string;
+  price: string;
+  score: number;
+  status: OpportunityStatus;
+  operatorDecision: OperatorDecision | null;
+  effectiveStatus: string;
+  breakdown: Breakdown;
+  reasons: string[];
+  evaluatedAt: string;
+  offerId: string | null;
+  offerCreated: boolean;
+  suppressedByCooldown: boolean;
+}
+
+export interface BatchEvaluationReport {
+  total: number;
+  approved: number;
+  candidate: number;
+  ignored: number;
+  notEligible: number;
+  failed: number;
+  offersCreated: number;
+  failures: { productId: string; reason: string }[];
+}
+
+export interface PopularityReport {
+  categories: number;
+  productsChecked: number;
+  productsRanked: number;
+  failedCategories: { categoryId: string; reason: string }[];
+}
+
+export interface PublishResult {
+  publication: Publication;
+  delivered: boolean;
+  usedPhoto: boolean;
+}
+
+export interface PublishAllReport {
+  total: number;
+  published: number;
+  skipped: number;
+  failed: number;
+  results: { channelId: string; channelName: string; status: string; error?: string }[];
+}
+
+export interface ChannelTestResult {
+  ok: true;
+  chat: { id: string; title: string | null };
+}
+
+export interface CycleSummary {
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  phases: string[];
+  productRefresh: {
+    synced: number;
+    syncUnchanged: number;
+    syncFailed: number;
+    popularityChecked: number;
+    popularityRanked: number;
+    popularityFailedCategories: number;
+  } | null;
+  evaluation: {
+    evaluated: number;
+    approved: number;
+    candidate: number;
+    ignored: number;
+    notEligible: number;
+    evaluationFailed: number;
+  } | null;
+  distribution: {
+    eligible: number;
+    published: number;
+    publishFailed: number;
+    deferred: number;
+    deferredReason: string | null;
+    channels: {
+      channelId: string;
+      channelName: string;
+      published: number;
+      deferred: number;
+      remainingQuota: number;
+    }[];
+    failures: { offerId: string; channelId: string; reason: string }[];
+  } | null;
+  phaseFailures: { phase: string; reason: string }[];
+}
+
+export interface AutomationStatus {
+  autopilotEnabled: boolean;
+  schedulerEnabled: boolean;
+  running: boolean;
+  runningPhase: string | null;
+  lastRunAt: string | null;
+  lastResult: CycleSummary | null;
+  nextRunAt: {
+    productRefresh: string | null;
+    evaluation: string | null;
+    distribution: string | null;
+  };
+  limits: {
+    minScore: number;
+    maxPostsPerHour: number;
+    maxPostsPerDay: number;
+    maxOfferAgeHours: number;
+    publishWindow: string;
+    timezone: string;
+    withinPublishWindow: boolean;
+  };
 }

@@ -37,6 +37,23 @@ export interface BatchSyncReport {
  */
 type CategoryCache = Map<string, Promise<string | null>>;
 
+/** Reputacao do vendedor, resolvida no maximo uma vez por operacao. */
+interface SellerReputation {
+  level: string | null;
+  status: string | null;
+}
+type SellerCache = Map<string, Promise<SellerReputation>>;
+
+/** Caches em memoria validos apenas durante uma operacao de sincronizacao. */
+interface SyncCaches {
+  categories: CategoryCache;
+  sellers: SellerCache;
+}
+
+function newCaches(): SyncCaches {
+  return { categories: new Map(), sellers: new Map() };
+}
+
 @Injectable()
 export class ProductSyncService {
   private readonly logger = new Logger(ProductSyncService.name);
@@ -53,7 +70,7 @@ export class ProductSyncService {
 
   /** Importa um anuncio pelo id do marketplace, criando ou atualizando o Product. */
   async importByItemId(marketplaceItemId: string): Promise<SyncResult> {
-    return this.fetchAndApply(marketplaceItemId, new Map());
+    return this.fetchAndApply(marketplaceItemId, newCaches());
   }
 
   /** Sincroniza um produto ja cadastrado. */
@@ -67,7 +84,7 @@ export class ProductSyncService {
       throw new NotFoundException(`Produto ${productId} nao encontrado`);
     }
 
-    return this.fetchAndApply(product.marketplaceItemId, new Map());
+    return this.fetchAndApply(product.marketplaceItemId, newCaches());
   }
 
   /**
@@ -89,14 +106,14 @@ export class ProductSyncService {
       failures: [],
     };
 
-    // Nomes de categoria sao reaproveitados por todo o lote, em memoria.
-    const categoryCache: CategoryCache = new Map();
+    // Categorias e vendedores sao reaproveitados por todo o lote, em memoria.
+    const caches = newCaches();
     const queue = [...products];
 
     const worker = async (): Promise<void> => {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
         try {
-          const result = await this.fetchAndApply(next.marketplaceItemId, categoryCache);
+          const result = await this.fetchAndApply(next.marketplaceItemId, caches);
 
           if (result.outcome === 'unchanged' && !result.priceSnapshotCreated) {
             report.unchanged += 1;
@@ -142,14 +159,17 @@ export class ProductSyncService {
    */
   private async fetchAndApply(
     marketplaceItemId: string,
-    categoryCache: CategoryCache,
+    caches: SyncCaches,
   ): Promise<SyncResult> {
     const raw = await this.client.getItem(marketplaceItemId);
     const item = normalizeItem(raw, this.config.siteId);
 
     // Preco vem da API oficial de precos, nao dos campos legados de /items.
     const price = normalizePrice(await this.client.getItemPrices(item.marketplaceItemId), item.marketplaceItemId);
-    const categoryName = await this.resolveCategoryName(item.categoryId, categoryCache);
+    const [categoryName, seller] = await Promise.all([
+      this.resolveCategoryName(item.categoryId, caches.categories),
+      this.resolveSeller(item.sellerId, caches.sellers),
+    ]);
 
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.product.findUnique({
@@ -161,7 +181,7 @@ export class ProductSyncService {
         },
       });
 
-      const data = this.buildData(item, price, categoryName, existing);
+      const data = this.buildData(item, price, categoryName, seller, existing);
       const product = existing
         ? await tx.product.update({ where: { id: existing.id }, data })
         : await tx.product.create({
@@ -192,6 +212,7 @@ export class ProductSyncService {
     item: NormalizedItem,
     price: NormalizedPrice,
     categoryName: string | null,
+    seller: SellerReputation,
     existing: Product | null,
   ): SyncedProductFields {
     return {
@@ -203,6 +224,9 @@ export class ProductSyncService {
       sellerId: item.sellerId,
       currencyId: price.currencyId ?? item.currencyId,
       marketplaceStatus: item.marketplaceStatus,
+      // Reputacao ausente nao apaga a que ja tinhamos.
+      sellerReputationLevel: seller.level ?? existing?.sellerReputationLevel ?? null,
+      sellerStatus: seller.status ?? existing?.sellerStatus ?? null,
       currentPrice: price.price,
       originalPrice: price.originalPrice,
       lastSyncedAt: new Date(),
@@ -234,6 +258,33 @@ export class ProductSyncService {
     cache.set(categoryId, pending);
     return pending;
   }
+
+  /**
+   * Busca a reputacao do vendedor uma unica vez por operacao.
+   *
+   * E enriquecimento: se o Mercado Livre falhar aqui, a sincronizacao do
+   * produto continua e o Opportunity Engine trata o dado como ausente.
+   */
+  private resolveSeller(sellerId: string | null, cache: SellerCache): Promise<SellerReputation> {
+    if (!sellerId) return Promise.resolve({ level: null, status: null });
+
+    const cached = cache.get(sellerId);
+    if (cached) return cached;
+
+    const pending = this.client
+      .getUser(sellerId)
+      .then((user) => ({
+        level: user.seller_reputation?.level_id ?? null,
+        status: user.seller_reputation?.power_seller_status ?? null,
+      }))
+      .catch((error: unknown) => {
+        if (!(error instanceof MercadoLivreError)) throw error;
+        return { level: null, status: null };
+      });
+
+    cache.set(sellerId, pending);
+    return pending;
+  }
 }
 
 /**
@@ -249,6 +300,8 @@ interface SyncedProductFields {
   sellerId: string | null;
   currencyId: string | null;
   marketplaceStatus: string | null;
+  sellerReputationLevel: string | null;
+  sellerStatus: string | null;
   currentPrice: Prisma.Decimal;
   originalPrice: Prisma.Decimal | null;
   lastSyncedAt: Date;
@@ -266,6 +319,8 @@ function hasMeaningfulChange(before: Product, after: Product): boolean {
     before.sellerId !== after.sellerId ||
     before.currencyId !== after.currencyId ||
     before.marketplaceStatus !== after.marketplaceStatus ||
+    before.sellerReputationLevel !== after.sellerReputationLevel ||
+    before.sellerStatus !== after.sellerStatus ||
     before.active !== after.active ||
     !before.currentPrice.equals(after.currentPrice) ||
     !equalNullableDecimal(before.originalPrice, after.originalPrice)

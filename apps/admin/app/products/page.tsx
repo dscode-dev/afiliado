@@ -8,7 +8,10 @@ import { getList } from '@/lib/api';
 import { Product } from '@/lib/types';
 import {
   createProduct,
+  evaluateActiveProducts,
+  evaluateProduct,
   importProduct,
+  refreshPopularity,
   setProductActive,
   syncActiveProducts,
   syncProduct,
@@ -79,6 +82,26 @@ export default async function ProductsPage() {
       </div>
 
       <div className="card">
+        <h3>Avaliar oportunidades</h3>
+        <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+          Atualize a popularidade a partir dos mais vendidos e depois avalie os ativos. O
+          resultado aparece em <Link href="/opportunities">Oportunidades</Link>.
+        </p>
+        <div className="row-actions">
+          <ActionForm
+            action={refreshPopularity}
+            label="Atualizar popularidade"
+            pendingLabel="Consultando..."
+          />
+          <ActionForm
+            action={evaluateActiveProducts}
+            label="Avaliar ativos"
+            pendingLabel="Avaliando..."
+          />
+        </div>
+      </div>
+
+      <div className="card">
         <h3>Cadastrados ({products.total})</h3>
         {products.data.length === 0 ? (
           <Empty>Nenhum produto cadastrado ainda.</Empty>
@@ -132,6 +155,12 @@ export default async function ProductsPage() {
                           id={product.id}
                           values={{}}
                           label="Sincronizar"
+                        />
+                        <RowActionForm
+                          action={evaluateProduct}
+                          id={product.id}
+                          values={{}}
+                          label="Avaliar"
                         />
                         <Link className="badge" href={`/products/${product.id}/prices`}>
                           Historico

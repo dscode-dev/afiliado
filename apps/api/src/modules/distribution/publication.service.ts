@@ -28,7 +28,7 @@ export class PublicationService {
         take,
         skip,
         orderBy: { createdAt: 'desc' },
-        include: { channel: true, offer: true },
+        include: { channel: true, offer: { include: { product: true } } },
       }),
       this.prisma.publication.count({ where }),
     ]);

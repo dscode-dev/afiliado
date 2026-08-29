@@ -15,10 +15,12 @@ export type Field =
       kind: 'input';
       name: string;
       label: string;
-      type: 'text' | 'url' | 'number' | 'datetime-local';
+      type: 'text' | 'url' | 'number' | 'datetime-local' | 'hidden';
       required?: boolean;
       placeholder?: string;
       step?: string;
+      /** Usado por campos `hidden`, que carregam contexto e nao sao editaveis. */
+      value?: string;
     }
   | {
       kind: 'select';

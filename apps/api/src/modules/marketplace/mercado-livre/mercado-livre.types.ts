@@ -59,6 +59,14 @@ export interface MeliCatalogProduct {
   buy_box_winner?: { item_id?: string; price?: number; currency_id?: string } | null;
 }
 
+export interface MeliUser {
+  id: number | string;
+  seller_reputation?: {
+    level_id?: string | null;
+    power_seller_status?: string | null;
+  } | null;
+}
+
 /** Resposta do multiget `/items?ids=` - lista de envelopes com status por item. */
 export interface MeliMultiGetEntry<T> {
   code?: number;

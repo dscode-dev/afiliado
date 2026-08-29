@@ -15,6 +15,8 @@ export async function createAffiliateLink(
       productId: required(formData, 'productId'),
       url: required(formData, 'url'),
       label: optional(formData, 'label'),
+      sourceLabel: optional(formData, 'sourceLabel'),
+      channelTag: optional(formData, 'channelTag'),
     });
   } catch (error) {
     return { error: error instanceof ApiError ? error.message : 'Falha ao criar o link' };
@@ -22,6 +24,8 @@ export async function createAffiliateLink(
 
   revalidatePath('/affiliate-links');
   revalidatePath('/dashboard');
+  // Um link novo pode tornar uma oportunidade elegivel.
+  revalidatePath('/opportunities');
   return { ok: true };
 }
 

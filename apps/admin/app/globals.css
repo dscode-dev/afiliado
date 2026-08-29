@@ -294,3 +294,164 @@ button.secondary {
   text-decoration: line-through;
   margin-left: 8px;
 }
+
+.breakdown {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding: 12px 0 4px;
+}
+
+.breakdown-table {
+  width: auto;
+  min-width: 280px;
+  font-size: 13px;
+}
+
+.breakdown-table td {
+  border-bottom: none;
+  padding: 3px 8px 3px 0;
+}
+
+.breakdown-table .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.breakdown-table .total td {
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+  padding-top: 6px;
+}
+
+.bar-cell {
+  width: 140px;
+}
+
+.bar {
+  display: block;
+  width: 140px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.reasons {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+  align-self: center;
+}
+
+.reasons li {
+  padding: 2px 0;
+}
+
+.score-cell {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge.approved {
+  color: var(--ok);
+  border-color: rgba(6, 118, 71, 0.35);
+  background: rgba(6, 118, 71, 0.08);
+}
+
+.badge.rejected,
+.badge.required {
+  color: var(--danger);
+  border-color: rgba(180, 35, 24, 0.3);
+  background: rgba(180, 35, 24, 0.07);
+}
+
+.badge.candidate {
+  color: #8a5a00;
+  border-color: rgba(138, 90, 0, 0.3);
+  background: rgba(138, 90, 0, 0.08);
+}
+
+details.opportunity {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+details.opportunity summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+details.opportunity summary .title {
+  flex: 1;
+  min-width: 220px;
+  font-weight: 500;
+}
+
+.link-required-form {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.publish-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.publish-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.publish-form select {
+  width: auto;
+  min-width: 180px;
+}
+
+.publish-form .error,
+.publish-form .notice,
+.inline-form .error,
+.inline-form .notice {
+  flex-basis: 100%;
+  margin: 6px 0 0;
+}
+
+.published-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 13px;
+}
+
+.published-list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+td.num {
+  font-variant-numeric: tabular-nums;
+}

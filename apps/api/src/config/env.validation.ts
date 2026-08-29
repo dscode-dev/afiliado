@@ -34,6 +34,24 @@ export function validateEnv(config: Record<string, unknown>): AppEnv {
     errors.push('DATABASE_URL deve ser uma connection string PostgreSQL');
   }
 
+  const approved = Number(config.OPPORTUNITY_APPROVED_THRESHOLD ?? 85);
+  const candidate = Number(config.OPPORTUNITY_CANDIDATE_THRESHOLD ?? 70);
+
+  for (const [name, value] of [
+    ['OPPORTUNITY_APPROVED_THRESHOLD', approved],
+    ['OPPORTUNITY_CANDIDATE_THRESHOLD', candidate],
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      errors.push(`${name} deve estar entre 0 e 100`);
+    }
+  }
+
+  if (Number.isFinite(approved) && Number.isFinite(candidate) && candidate > approved) {
+    errors.push(
+      'OPPORTUNITY_CANDIDATE_THRESHOLD nao pode ser maior que OPPORTUNITY_APPROVED_THRESHOLD',
+    );
+  }
+
   // A integracao com o Mercado Livre e opcional no boot: a aplicacao sobe sem
   // credenciais e so falha (502) ao tentar usar os endpoints que dependem dela.
   // Mas configurar pela metade e sempre erro de configuracao.

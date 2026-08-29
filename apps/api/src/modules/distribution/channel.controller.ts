@@ -1,14 +1,29 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Paginated } from '../../common/dto/pagination.dto';
 import { ChannelView } from './channel.entity';
 import { ChannelService } from './channel.service';
+import { TelegramPublisherService } from './telegram/telegram-publisher.service';
 import { CreateChannelDto } from './dto/create-channel.dto';
 import { ListChannelsQueryDto } from './dto/list-channels.dto';
 import { UpdateChannelDto } from './dto/update-channel.dto';
 
 @Controller('channels')
 export class ChannelController {
-  constructor(private readonly channels: ChannelService) {}
+  constructor(
+    private readonly channels: ChannelService,
+    private readonly publisher: TelegramPublisherService,
+  ) {}
 
   @Get()
   list(@Query() query: ListChannelsQueryDto): Promise<Paginated<ChannelView>> {
@@ -26,5 +41,15 @@ export class ChannelController {
     @Body() dto: UpdateChannelDto,
   ): Promise<ChannelView> {
     return this.channels.update(id, dto);
+  }
+
+  /**
+   * Valida o canal contra a Bot API sem publicar nada (getChat).
+   * Confirma que o bot enxerga o canal antes de o operador tentar publicar.
+   */
+  @Post(':id/test')
+  @HttpCode(HttpStatus.OK)
+  test(@Param('id', ParseUUIDPipe) id: string) {
+    return this.publisher.testChannel(id);
   }
 }

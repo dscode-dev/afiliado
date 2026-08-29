@@ -34,7 +34,10 @@ export function CreateForm({
       {state.error ? <div className="error">{state.error}</div> : null}
       {state.message ? <div className="notice">{state.message}</div> : null}
       <div className="form-grid">
-        {fields.map((field) => (
+        {fields.map((field) =>
+          field.kind === 'input' && field.type === 'hidden' ? (
+            <input key={field.name} type="hidden" name={field.name} value={field.value} />
+          ) : (
           <div key={field.name}>
             <label htmlFor={field.name}>
               {field.label}
@@ -60,7 +63,8 @@ export function CreateForm({
               />
             )}
           </div>
-        ))}
+          ),
+        )}
         <div>
           <SubmitButton label={submitLabel} />
         </div>
