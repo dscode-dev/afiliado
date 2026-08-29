@@ -7,6 +7,16 @@ export interface ProductRefreshSummary {
   popularityFailedCategories: number;
 }
 
+export interface AffiliateGenerationSummary {
+  /** Produtos ativos sem link no inicio da etapa. */
+  total: number;
+  generated: number;
+  unchanged: number;
+  failed: number;
+  /** Sessao da Central caida: um operador precisa reautenticar. */
+  authRequired: number;
+}
+
 export interface EvaluationSummary {
   evaluated: number;
   approved: number;
@@ -44,6 +54,7 @@ export interface CycleSummary {
   durationMs: number;
   phases: string[];
   productRefresh: ProductRefreshSummary | null;
+  affiliateLinks: AffiliateGenerationSummary | null;
   evaluation: EvaluationSummary | null;
   distribution: DistributionSummary | null;
   /** Falhas de fase inteira (ex.: Mercado Livre fora do ar). */

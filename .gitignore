@@ -14,3 +14,11 @@ out/
 .DS_Store
 *.log
 npm-debug.log*
+
+# Sessao do affiliate-bot: cookies reais de uma conta. Nunca versionar.
+.garimpo/
+**/affiliate-profile/
+*.playwright-profile/
+# `/profile` e o caminho padrao dentro do container; se alguem montar aqui,
+# tambem fica fora do git.
+/profile/

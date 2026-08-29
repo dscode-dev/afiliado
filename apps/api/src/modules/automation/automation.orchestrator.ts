@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PopularityService } from '../catalog/popularity.service';
 import { ProductSyncService } from '../catalog/product-sync.service';
+import { AffiliateLinkGeneratorService } from '../affiliate/generation/affiliate-link-generator.service';
 import { OpportunityService } from '../opportunity/opportunity.service';
 import { PublicationDispatcher } from '../distribution/publish/publication-dispatcher.service';
 import { AutomationConfig } from './automation.config';
@@ -8,13 +9,19 @@ import { AutomationState } from './automation.state';
 import { Clock } from './clock';
 import { DistributionPolicyService } from './distribution-policy.service';
 import {
+  AffiliateGenerationSummary,
   CycleSummary,
   DistributionSummary,
   EvaluationSummary,
   ProductRefreshSummary,
 } from './automation.types';
 
-export type Phase = 'productRefresh' | 'evaluation' | 'distribution' | 'fullCycle';
+export type Phase =
+  | 'productRefresh'
+  | 'affiliateLinks'
+  | 'evaluation'
+  | 'distribution'
+  | 'fullCycle';
 
 /**
  * Orquestrador unico do pipeline automatico.
@@ -33,6 +40,7 @@ export class AutomationOrchestrator {
     private readonly clock: Clock,
     private readonly sync: ProductSyncService,
     private readonly popularity: PopularityService,
+    private readonly affiliateLinks: AffiliateLinkGeneratorService,
     private readonly opportunities: OpportunityService,
     private readonly policy: DistributionPolicyService,
     private readonly publisher: PublicationDispatcher,
@@ -40,7 +48,18 @@ export class AutomationOrchestrator {
 
   /** Ciclo completo: usado pelo `POST /automation/run`. */
   runFullCycle(): Promise<CycleSummary> {
-    return this.run('fullCycle', ['productRefresh', 'evaluation', 'distribution']);
+    return this.run('fullCycle', [
+      'productRefresh',
+      // Gerar o link ANTES de avaliar: sem link ativo a oportunidade seria
+      // NOT_ELIGIBLE e nunca chegaria a distribuicao.
+      'affiliateLinks',
+      'evaluation',
+      'distribution',
+    ]);
+  }
+
+  runAffiliateLinkGeneration(): Promise<CycleSummary> {
+    return this.run('affiliateLinks', ['affiliateLinks']);
   }
 
   runProductRefresh(): Promise<CycleSummary> {
@@ -89,6 +108,7 @@ export class AutomationOrchestrator {
       durationMs: 0,
       phases: steps,
       productRefresh: null,
+      affiliateLinks: null,
       evaluation: null,
       distribution: null,
       phaseFailures: [],
@@ -98,6 +118,12 @@ export class AutomationOrchestrator {
       if (steps.includes('productRefresh')) {
         summary.productRefresh = await this.guard('productRefresh', summary, () =>
           this.executeProductRefresh(),
+        );
+      }
+
+      if (steps.includes('affiliateLinks')) {
+        summary.affiliateLinks = await this.guard('affiliateLinks', summary, () =>
+          this.executeAffiliateLinkGeneration(),
         );
       }
 
@@ -205,6 +231,37 @@ export class AutomationOrchestrator {
       popularityChecked,
       popularityRanked,
       popularityFailedCategories,
+    };
+  }
+
+  /**
+   * Gera os links que faltam.
+   *
+   * Etapa isolada: se a Central estiver fora ou a sessao caida, o ciclo segue
+   * e os produtos sem link ficam NOT_ELIGIBLE - nunca publicados sem link.
+   */
+  private async executeAffiliateLinkGeneration(): Promise<AffiliateGenerationSummary> {
+    const report = await this.affiliateLinks.generateMissing();
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'affiliate_links_completed',
+        counts: {
+          total: report.total,
+          generated: report.generated,
+          unchanged: report.unchanged,
+        },
+        failures: report.failed,
+        authRequired: report.authRequired,
+      }),
+    );
+
+    return {
+      total: report.total,
+      generated: report.generated,
+      unchanged: report.unchanged,
+      failed: report.failed,
+      authRequired: report.authRequired,
     };
   }
 
@@ -352,6 +409,8 @@ function countsOf(summary: CycleSummary): Record<string, number> {
   return {
     synced: summary.productRefresh?.synced ?? 0,
     syncFailed: summary.productRefresh?.syncFailed ?? 0,
+    linksGenerated: summary.affiliateLinks?.generated ?? 0,
+    linksFailed: summary.affiliateLinks?.failed ?? 0,
     evaluated: summary.evaluation?.evaluated ?? 0,
     approved: summary.evaluation?.approved ?? 0,
     published: summary.distribution?.published ?? 0,

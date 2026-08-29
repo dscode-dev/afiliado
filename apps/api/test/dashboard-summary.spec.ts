@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { productPayload } from './fixtures';
 
@@ -55,7 +54,7 @@ describe('GET /analytics/summary', () => {
 
     await prisma.publication.create({ data: { offerId: open.id, channelId: channel.id } });
 
-    const response = await request(app.getHttpServer()).get('/analytics/summary').expect(200);
+    const response = await authed(app).get('/analytics/summary').expect(200);
 
     expect(response.body).toEqual({
       activeProducts: 1,
@@ -68,7 +67,7 @@ describe('GET /analytics/summary', () => {
   });
 
   it('devolve zeros com a base vazia', async () => {
-    const response = await request(app.getHttpServer()).get('/analytics/summary').expect(200);
+    const response = await authed(app).get('/analytics/summary').expect(200);
 
     expect(response.body).toEqual({
       activeProducts: 0,

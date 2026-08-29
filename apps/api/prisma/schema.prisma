@@ -15,6 +15,14 @@ enum Marketplace {
   MERCADO_LIVRE
 }
 
+/// Como o link de afiliado foi obtido.
+enum AffiliateLinkSource {
+  /// Cadastrado a mao pelo operador.
+  MANUAL
+  /// Gerado pelo affiliate-bot na Central de Afiliados (adapter NAO oficial).
+  MERCADO_LIVRE_AFFILIATE_WEB
+}
+
 enum ChannelType {
   TELEGRAM
   FACEBOOK
@@ -122,6 +130,15 @@ model AffiliateLink {
   sourceLabel String? @db.VarChar(120)
   /// Canal a que o link se destina, quando houver segmentacao por canal.
   channelTag  String? @db.VarChar(120)
+  /// Origem do link. Publicacao automatica exige link realmente monetizado.
+  source      AffiliateLinkSource @default(MANUAL)
+  /// Tag de afiliado usada na geracao, quando gerado automaticamente.
+  tag         String? @db.VarChar(120)
+  /// URL de origem que o provider associou ao link (permalink do produto).
+  originUrl   String? @db.VarChar(2048)
+  generatedAt DateTime? @db.Timestamptz(3)
+  /// Ultima vez que o link foi conferido contra o provider.
+  verifiedAt  DateTime? @db.Timestamptz(3)
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
@@ -129,6 +146,7 @@ model AffiliateLink {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId, active])
+  @@index([source, active])
   @@map("affiliate_links")
 }
 
@@ -228,4 +246,62 @@ model OpportunityEvaluation {
 
   @@index([status, score(sort: Desc)])
   @@map("opportunity_evaluations")
+}
+
+/// Operador do painel. Nao ha cadastro publico: o primeiro admin e criado
+/// pelo comando `npm run admin:create`.
+model AdminUser {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  /// Hash argon2id. A senha em texto puro nunca e persistida nem logada.
+  passwordHash String    @db.VarChar(255)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions AdminSession[]
+
+  @@map("admin_users")
+}
+
+/// Sessao administrativa.
+///
+/// O cookie carrega um token opaco de 32 bytes (CSPRNG); aqui guardamos apenas
+/// o SHA-256 dele. Vazamento do banco nao permite reconstruir o token.
+/// SHA-256 e adequado neste caso - o token e aleatorio de alta entropia, nao
+/// uma senha, entao nao precisa de KDF lento.
+model AdminSession {
+  id          String    @id @default(uuid()) @db.Uuid
+  adminUserId String    @db.Uuid
+  tokenHash   String    @unique @db.VarChar(64)
+  expiresAt   DateTime  @db.Timestamptz(3)
+  lastSeenAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  user AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([adminUserId])
+  @@map("admin_sessions")
+}
+
+/// Credencial OAuth de um marketplace.
+///
+/// Existe porque o Mercado Livre exige Authorization Code para itens, precos,
+/// highlights e vendedores - `client_credentials` so alcanca categorias. O
+/// refresh token e rotativo, entao precisa ser persistido; fica cifrado com
+/// AES-256-GCM (chave em `MELI_TOKEN_SECRET`), nunca em texto puro.
+model MarketplaceCredential {
+  id             String      @id @default(uuid()) @db.Uuid
+  marketplace    Marketplace @unique
+  /// Refresh token cifrado. Nunca logado, nunca devolvido pela API.
+  refreshTokenEnc String     @db.Text
+  /// Id do usuario do marketplace que autorizou, para diagnostico.
+  externalUserId String?     @db.VarChar(64)
+  scope          String?     @db.VarChar(255)
+  authorizedAt   DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@map("marketplace_credentials")
 }

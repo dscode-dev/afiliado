@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module';
 import { AffiliateModule } from './modules/affiliate/affiliate.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AutomationModule } from './modules/automation/automation.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { DistributionModule } from './modules/distribution/distribution.module';
 import { MarketplaceModule } from './modules/marketplace/marketplace.module';
@@ -21,6 +22,7 @@ import { OpportunityModule } from './modules/opportunity/opportunity.module';
       envFilePath: ['.env', '../../.env'],
     }),
     PrismaModule,
+    AuthModule,
     HealthModule,
     MarketplaceModule,
     CatalogModule,

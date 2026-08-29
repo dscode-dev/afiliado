@@ -14,9 +14,11 @@ export class MercadoLivreConfig {
   readonly timeoutMs: number;
   readonly clientId?: string;
   readonly redirectUri?: string;
+  readonly authBaseUrl: string;
 
   private readonly clientSecret?: string;
   private readonly refreshToken?: string;
+  private readonly tokenSecret?: string;
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.apiBaseUrl = (env.MELI_API_BASE_URL ?? 'https://api.mercadolibre.com').replace(/\/+$/, '');
@@ -26,6 +28,50 @@ export class MercadoLivreConfig {
     this.redirectUri = env.MELI_REDIRECT_URI || undefined;
     this.clientSecret = env.MELI_CLIENT_SECRET || undefined;
     this.refreshToken = env.MELI_REFRESH_TOKEN || undefined;
+    this.tokenSecret = env.MELI_TOKEN_SECRET || undefined;
+    // Autorizacao roda no dominio do site, nao na API.
+    this.authBaseUrl = (env.MELI_AUTH_BASE_URL ?? 'https://auth.mercadolivre.com.br').replace(
+      /\/+$/,
+      '',
+    );
+  }
+
+  /** Segredo usado para cifrar o refresh token persistido. */
+  get credentialSecret(): string | undefined {
+    return this.tokenSecret;
+  }
+
+  /** URL para o operador autorizar a aplicacao uma unica vez. */
+  authorizationUrl(state: string): string {
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.clientId ?? '',
+      redirect_uri: this.redirectUri ?? '',
+      state,
+    });
+
+    return `${this.authBaseUrl}/authorization?${params.toString()}`;
+  }
+
+  /** Corpo da troca `code` -> tokens. */
+  authorizationCodeBody(code: string): URLSearchParams {
+    return new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: this.clientId ?? '',
+      client_secret: this.clientSecret ?? '',
+      code,
+      redirect_uri: this.redirectUri ?? '',
+    });
+  }
+
+  /** Corpo da renovacao com um refresh token especifico (rotativo). */
+  refreshBody(refreshToken: string): URLSearchParams {
+    return new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: this.clientId ?? '',
+      client_secret: this.clientSecret ?? '',
+      refresh_token: refreshToken,
+    });
   }
 
   /** A integracao so opera com client id + secret configurados. */
@@ -65,6 +111,7 @@ export class MercadoLivreConfig {
       clientId: this.clientId ? '[set]' : undefined,
       clientSecret: this.clientSecret ? '[redacted]' : undefined,
       refreshToken: this.refreshToken ? '[redacted]' : undefined,
+      tokenSecret: this.tokenSecret ? '[redacted]' : undefined,
       grant: this.grant,
     };
   }

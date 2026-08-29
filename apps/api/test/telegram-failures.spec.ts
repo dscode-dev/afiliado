@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeTelegram } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeTelegram } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { TelegramFakeServer } from './telegram-fake-server';
 
@@ -72,7 +71,7 @@ describe('Falhas, idempotencia e reenvio', () => {
   }
 
   const publish = (offerId: string, channelId: string) =>
-    request(app.getHttpServer()).post(`/offers/${offerId}/publish`).send({ channelId });
+    authed(app).post(`/offers/${offerId}/publish`).send({ channelId });
 
   describe('classificacao de erros', () => {
     const cases: [string, number, string, number][] = [
@@ -256,7 +255,7 @@ describe('Falhas, idempotencia e reenvio', () => {
 
       telegram.reset();
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/publications/${failed.id}/retry`)
         .expect(200);
 
@@ -275,7 +274,7 @@ describe('Falhas, idempotencia e reenvio', () => {
         where: { offerId: offer.id },
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/publications/${publication.id}/retry`)
         .expect(409);
 
@@ -284,7 +283,7 @@ describe('Falhas, idempotencia e reenvio', () => {
     });
 
     it('retorna 404 para publicacao inexistente', async () => {
-      await request(app.getHttpServer())
+      await authed(app)
         .post('/publications/0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c/retry')
         .expect(404);
     });
@@ -300,7 +299,7 @@ describe('Falhas, idempotencia e reenvio', () => {
         data: { type: 'TELEGRAM', name: 'Inativo', externalIdentifier: '@tres', active: false },
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/offers/${offer.id}/publish-all`)
         .expect(200);
 
@@ -322,7 +321,7 @@ describe('Falhas, idempotencia e reenvio', () => {
         remaining: 1,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/offers/${offer.id}/publish-all`)
         .expect(200);
 
@@ -334,7 +333,7 @@ describe('Falhas, idempotencia e reenvio', () => {
     it('valida o canal com getChat, sem publicar nada', async () => {
       const { channel } = await seed(null);
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/channels/${channel.id}/test`)
         .expect(200);
 
@@ -350,7 +349,7 @@ describe('Falhas, idempotencia e reenvio', () => {
       const { channel } = await seed(null);
       telegram.failWithDescription('getChat', 400, 'Bad Request: chat not found');
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/channels/${channel.id}/test`)
         .expect(422);
 

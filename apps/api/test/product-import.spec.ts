@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MeliFakeServer } from './meli-fake-server';
 
@@ -42,7 +41,7 @@ describe('Importacao de produto do Mercado Livre', () => {
   });
 
   const importItem = (id = ITEM_ID) =>
-    request(app.getHttpServer()).post('/products/import').send({ marketplaceItemId: id });
+    authed(app).post('/products/import').send({ marketplaceItemId: id });
 
   it('cria o produto com dados reais e resolve o nome da categoria', async () => {
     const response = await importItem().expect(201);
@@ -174,12 +173,12 @@ describe('Importacao de produto do Mercado Livre', () => {
   });
 
   it('rejeita id fora do padrao do Mercado Livre sem chamar o provider', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/products/import')
       .send({ marketplaceItemId: 'nao-e-id' })
       .expect(400);
 
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/products/import')
       .send({ marketplaceItemId: 'MLA1234567890' })
       .expect(400);

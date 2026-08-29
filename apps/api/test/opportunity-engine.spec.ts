@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 
 const money = (value: string) => new Prisma.Decimal(value);
@@ -82,7 +81,7 @@ describe('Opportunity Engine', () => {
   }
 
   const evaluateProduct = (productId: string) =>
-    request(app.getHttpServer()).post(`/products/${productId}/evaluate`);
+    authed(app).post(`/products/${productId}/evaluate`);
 
   describe('elegibilidade', () => {
     it('marca NOT_ELIGIBLE sem link afiliado, mesmo com score alto', async () => {
@@ -115,7 +114,7 @@ describe('Opportunity Engine', () => {
       const before = await evaluateProduct(productId).expect(200);
       expect(before.body.status).toBe('NOT_ELIGIBLE');
 
-      await request(app.getHttpServer())
+      await authed(app)
         .post('/affiliate-links')
         .send({ productId, url: 'https://mercadolivre.com/sec/abc', sourceLabel: 'painel' })
         .expect(201);
@@ -163,7 +162,7 @@ describe('Opportunity Engine', () => {
     });
 
     it('retorna 404 para produto inexistente', async () => {
-      await request(app.getHttpServer())
+      await authed(app)
         .post('/products/0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c/evaluate')
         .expect(404);
     });
@@ -286,7 +285,7 @@ describe('Opportunity Engine', () => {
       const engine = await evaluateProduct(productId).expect(200);
       expect(engine.body.status).toBe('CANDIDATE');
 
-      const decided = await request(app.getHttpServer())
+      const decided = await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'APPROVED', note: 'Campanha de fim de semana' })
         .expect(200);
@@ -307,7 +306,7 @@ describe('Opportunity Engine', () => {
 
       await evaluateProduct(productId).expect(200);
 
-      const decided = await request(app.getHttpServer())
+      const decided = await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'REJECTED' })
         .expect(200);
@@ -325,7 +324,7 @@ describe('Opportunity Engine', () => {
       await addLink(productId);
 
       await evaluateProduct(productId).expect(200);
-      await request(app.getHttpServer())
+      await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'REJECTED' })
         .expect(200);
@@ -345,12 +344,12 @@ describe('Opportunity Engine', () => {
       await addLink(productId);
 
       await evaluateProduct(productId).expect(200);
-      await request(app.getHttpServer())
+      await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'REJECTED' })
         .expect(200);
 
-      const cleared = await request(app.getHttpServer())
+      const cleared = await authed(app)
         .delete(`/opportunities/${productId}/decision`)
         .expect(200);
 
@@ -364,7 +363,7 @@ describe('Opportunity Engine', () => {
 
       await evaluateProduct(productId).expect(200);
 
-      const decided = await request(app.getHttpServer())
+      const decided = await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'APPROVED' })
         .expect(200);
@@ -376,14 +375,14 @@ describe('Opportunity Engine', () => {
     it('exige avaliacao previa e valida a decisao', async () => {
       const productId = await createProduct();
 
-      await request(app.getHttpServer())
+      await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'APPROVED' })
         .expect(404);
 
       await evaluateProduct(productId).expect(200);
 
-      await request(app.getHttpServer())
+      await authed(app)
         .post(`/opportunities/${productId}/decision`)
         .send({ decision: 'TALVEZ' })
         .expect(400);
@@ -409,7 +408,7 @@ describe('Opportunity Engine', () => {
 
       await createProduct(); // sem link -> NOT_ELIGIBLE
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post('/products/evaluate')
         .expect(200);
 
@@ -429,7 +428,7 @@ describe('Opportunity Engine', () => {
       await addLink(productId);
       await prisma.product.update({ where: { id: productId }, data: { active: false } });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post('/products/evaluate')
         .expect(200);
 
@@ -454,7 +453,7 @@ describe('Opportunity Engine', () => {
           : original(args as never)) as never);
 
       try {
-        const response = await request(app.getHttpServer())
+        const response = await authed(app)
           .post('/products/evaluate')
           .expect(200);
 

@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { renderWhatsAppMessage } from '../src/modules/distribution/whatsapp/message.renderer';
 
@@ -193,10 +192,10 @@ describe('Distribuicao manual no WhatsApp', () => {
   }
 
   const preview = (offerId: string, channelId: string) =>
-    request(app.getHttpServer()).get(`/offers/${offerId}/manual-preview?channelId=${channelId}`);
+    authed(app).get(`/offers/${offerId}/manual-preview?channelId=${channelId}`);
 
   const confirm = (offerId: string, channelId: string) =>
-    request(app.getHttpServer()).post(`/offers/${offerId}/manual-publication`).send({ channelId });
+    authed(app).post(`/offers/${offerId}/manual-publication`).send({ channelId });
 
   describe('preview', () => {
     it('devolve texto pronto para copiar, sem criar Publication', async () => {
@@ -307,14 +306,14 @@ describe('Distribuicao manual no WhatsApp', () => {
     it('valida ids e existencia', async () => {
       const { offer, channel } = await seed();
 
-      await request(app.getHttpServer())
+      await authed(app)
         .get(`/offers/${offer.id}/manual-preview?channelId=nao-uuid`)
         .expect(400);
-      await request(app.getHttpServer())
+      await authed(app)
         .get(`/offers/${offer.id}/manual-preview`)
         .expect(400);
       await preview(offer.id, '0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c').expect(404);
-      await request(app.getHttpServer())
+      await authed(app)
         .get(`/offers/0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c/manual-preview?channelId=${channel.id}`)
         .expect(404);
     });
@@ -378,7 +377,7 @@ describe('Distribuicao manual no WhatsApp', () => {
       const { offer, channel } = await seed();
       await confirm(offer.id, channel.id).expect(200);
 
-      const response = await request(app.getHttpServer()).get('/publications').expect(200);
+      const response = await authed(app).get('/publications').expect(200);
 
       expect(response.body.total).toBe(1);
       expect(response.body.data[0]).toMatchObject({

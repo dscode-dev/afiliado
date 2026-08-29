@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MeliFakeServer } from './meli-fake-server';
 
@@ -34,7 +33,7 @@ describe('Sinais de popularidade e vendedor', () => {
       { amount: 700, regular: 1000 },
     );
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/products/import')
       .send({ marketplaceItemId: id })
       .expect(201);
@@ -69,7 +68,7 @@ describe('Sinais de popularidade e vendedor', () => {
       await importItem('MLB1000000004', 111);
 
       const before = meli.countRequests('/users/111');
-      await request(app.getHttpServer()).post('/products/sync').expect(200);
+      await authed(app).post('/products/sync').expect(200);
 
       expect(meli.countRequests('/users/111') - before).toBe(1);
     });
@@ -86,7 +85,7 @@ describe('Sinais de popularidade e vendedor', () => {
         { id: 'MLB9999999999', position: 1, type: 'ITEM' },
       ]);
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post('/products/refresh-popularity')
         .expect(200);
 
@@ -113,7 +112,7 @@ describe('Sinais de popularidade e vendedor', () => {
       meli.highlights.set(CATEGORY, [{ id: 'MLB1000000007', position: 1, type: 'ITEM' }]);
 
       const before = meli.countRequests(`/highlights/MLB/category/${CATEGORY}`);
-      await request(app.getHttpServer()).post('/products/refresh-popularity').expect(200);
+      await authed(app).post('/products/refresh-popularity').expect(200);
 
       expect(meli.countRequests(`/highlights/MLB/category/${CATEGORY}`) - before).toBe(1);
     });
@@ -122,7 +121,7 @@ describe('Sinais de popularidade e vendedor', () => {
       await importItem('MLB1000000010');
       meli.failOn(`/highlights/MLB/category/${CATEGORY}`, { status: 500 });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post('/products/refresh-popularity')
         .expect(200);
 
@@ -139,15 +138,15 @@ describe('Sinais de popularidade e vendedor', () => {
         data: { productId, url: 'https://mercadolivre.com/sec/abc' },
       });
 
-      const before = await request(app.getHttpServer())
+      const before = await authed(app)
         .post(`/products/${productId}/evaluate`)
         .expect(200);
       expect(before.body.breakdown.popularity.earned).toBe(0);
 
       meli.highlights.set(CATEGORY, [{ id: 'MLB1000000011', position: 1, type: 'ITEM' }]);
-      await request(app.getHttpServer()).post('/products/refresh-popularity').expect(200);
+      await authed(app).post('/products/refresh-popularity').expect(200);
 
-      const after = await request(app.getHttpServer())
+      const after = await authed(app)
         .post(`/products/${productId}/evaluate`)
         .expect(200);
 

@@ -101,16 +101,31 @@ export class PublicationDispatcher {
     const publisher = this.assertAutomatedChannel(channel);
     const publication = await this.reserve(offerId, channelId);
 
+    return this.deliverAndRecord(publication.id, channel, publisher, content);
+  }
+
+  /**
+   * Entrega no provider e grava o resultado.
+   *
+   * So e chamado por quem ja detem a reserva daquela Publication - seja por ter
+   * vencido o INSERT (publish) ou por ter reivindicado uma FAILED (retry).
+   */
+  private async deliverAndRecord(
+    publicationId: string,
+    channel: Channel,
+    publisher: ChannelPublisher,
+    content: OfferContent,
+  ): Promise<PublishResult> {
     let delivery;
     try {
       delivery = await publisher.deliver(channel.externalIdentifier as string, content);
     } catch (error) {
-      await this.markFailed(publication.id, channel.type, error);
+      await this.markFailed(publicationId, channel.type, error);
       throw error;
     }
 
     const published = await this.prisma.publication.update({
-      where: { id: publication.id },
+      where: { id: publicationId },
       data: {
         status: PublicationStatus.PUBLISHED,
         externalMessageId: delivery.externalId,
@@ -124,8 +139,8 @@ export class PublicationDispatcher {
       JSON.stringify({
         provider: channel.type.toLowerCase(),
         operation: 'publish',
-        offerId,
-        channelId,
+        offerId: published.offerId,
+        channelId: published.channelId,
         usedImage: delivery.usedImage,
         externalMessageId: delivery.externalId,
       }),
@@ -201,18 +216,27 @@ export class PublicationDispatcher {
       throw new NotFoundException(`Publicacao ${publicationId} nao encontrada`);
     }
 
-    if (publication.status !== PublicationStatus.FAILED) {
+    // Reivindicacao atomica: a condicao `status: FAILED` no UPDATE garante que
+    // apenas um reenvio concorrente assume a publicacao.
+    const claimed = await this.prisma.publication.updateMany({
+      where: { id: publicationId, status: PublicationStatus.FAILED },
+      data: { status: PublicationStatus.PENDING, errorMessage: null },
+    });
+
+    if (claimed.count === 0) {
       throw new ConflictException(
         `Somente publicacoes FAILED podem ser reenviadas (atual: ${publication.status})`,
       );
     }
 
-    await this.prisma.publication.update({
-      where: { id: publicationId },
-      data: { status: PublicationStatus.PENDING, errorMessage: null },
-    });
+    const { channel, content } = await this.loadAndValidate(
+      publication.offerId,
+      publication.channelId,
+    );
+    const publisher = this.assertAutomatedChannel(channel);
 
-    return this.publish(publication.offerId, publication.channelId);
+    // Vai direto para a entrega: a reserva ja e desta chamada.
+    return this.deliverAndRecord(publicationId, channel, publisher, content);
   }
 
   /** Valida o canal sem publicar nada. */
@@ -236,11 +260,13 @@ export class PublicationDispatcher {
       where: { offerId_channelId: { offerId, channelId } },
     });
 
+    // Qualquer linha existente e conflito - inclusive PENDING.
+    //
+    // Retomar uma reserva PENDING alheia permitiria que chamadas concorrentes
+    // entregassem a mesma oferta varias vezes ao provider, contornando a
+    // constraint. Reenvio de uma FAILED passa por `retry`, que reivindica a
+    // linha atomicamente.
     if (existing) {
-      if (existing.status === PublicationStatus.PENDING) {
-        return { id: existing.id };
-      }
-
       throw new ConflictException(
         existing.status === PublicationStatus.PUBLISHED
           ? 'Esta oferta ja foi publicada neste canal'

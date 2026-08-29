@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 
 describe('Channels', () => {
@@ -20,7 +19,7 @@ describe('Channels', () => {
   });
 
   it('cria um canal com configuracao nao sensivel', async () => {
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/channels')
       .send({
         type: 'TELEGRAM',
@@ -40,7 +39,7 @@ describe('Channels', () => {
   });
 
   it('usa objeto vazio como configuracao padrao', async () => {
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/channels')
       .send({ type: 'WHATSAPP', name: 'Grupo Ofertas' })
       .expect(201);
@@ -49,7 +48,7 @@ describe('Channels', () => {
   });
 
   it('recusa credenciais em texto puro na configuracao', async () => {
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/channels')
       .send({
         type: 'TELEGRAM',
@@ -63,7 +62,7 @@ describe('Channels', () => {
   });
 
   it('recusa credenciais aninhadas na configuracao', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/channels')
       .send({
         type: 'FACEBOOK',
@@ -74,44 +73,44 @@ describe('Channels', () => {
   });
 
   it('recusa tipo de canal nao suportado', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/channels')
       .send({ type: 'INSTAGRAM', name: 'Perfil' })
       .expect(400);
   });
 
   it('recusa nome duplicado no mesmo tipo de canal', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/channels')
       .send({ type: 'TELEGRAM', name: 'Ofertas Brasil' })
       .expect(201);
 
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/channels')
       .send({ type: 'TELEGRAM', name: 'Ofertas Brasil' })
       .expect(409);
 
     // O mesmo nome em outro tipo continua permitido.
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/channels')
       .send({ type: 'WHATSAPP', name: 'Ofertas Brasil' })
       .expect(201);
   });
 
   it('edita nome e estado do canal sem alterar o tipo', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await authed(app)
       .post('/channels')
       .send({ type: 'TELEGRAM', name: 'Ofertas Brasil' })
       .expect(201);
 
-    const updated = await request(app.getHttpServer())
+    const updated = await authed(app)
       .patch(`/channels/${created.body.id}`)
       .send({ name: 'Ofertas BR', active: false })
       .expect(200);
 
     expect(updated.body).toMatchObject({ name: 'Ofertas BR', active: false, type: 'TELEGRAM' });
 
-    await request(app.getHttpServer())
+    await authed(app)
       .patch(`/channels/${created.body.id}`)
       .send({ type: 'WHATSAPP' })
       .expect(400);

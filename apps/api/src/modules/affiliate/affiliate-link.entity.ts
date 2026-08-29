@@ -1,4 +1,4 @@
-import { AffiliateLink, Product } from '@prisma/client';
+import { AffiliateLink, AffiliateLinkSource, Product } from '@prisma/client';
 
 export interface AffiliateLinkView {
   id: string;
@@ -8,6 +8,10 @@ export interface AffiliateLinkView {
   label: string | null;
   sourceLabel: string | null;
   channelTag: string | null;
+  source: AffiliateLinkSource;
+  tag: string | null;
+  originUrl: string | null;
+  generatedAt: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -30,6 +34,10 @@ export function toAffiliateLinkView(link: AffiliateLinkWithProduct): AffiliateLi
     label: link.label,
     sourceLabel: link.sourceLabel,
     channelTag: link.channelTag,
+    source: link.source,
+    tag: link.tag,
+    originUrl: link.originUrl,
+    generatedAt: link.generatedAt?.toISOString() ?? null,
     active: link.active,
     createdAt: link.createdAt.toISOString(),
     updatedAt: link.updatedAt.toISOString(),

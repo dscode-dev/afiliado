@@ -19,6 +19,10 @@ import {
   FacebookError,
   FacebookFailure,
 } from '../../modules/distribution/facebook/facebook.errors';
+import {
+  AffiliateGenerationError,
+  GenerationFailure,
+} from '../../modules/affiliate/generation/affiliate-bot.client';
 import type { Request, Response } from 'express';
 
 interface ErrorBody {
@@ -99,6 +103,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (exception instanceof FacebookError) {
       const { status, error } = FACEBOOK_STATUS[exception.failure];
+      return { status, error, message: exception.message };
+    }
+
+    if (exception instanceof AffiliateGenerationError) {
+      const { status, error } = AFFILIATE_STATUS[exception.failure];
       return { status, error, message: exception.message };
     }
 
@@ -214,4 +223,21 @@ const FACEBOOK_STATUS: Record<FacebookFailure, { status: number; error: string }
   rate_limited: { status: HttpStatus.TOO_MANY_REQUESTS, error: 'Too Many Requests' },
   timeout: { status: HttpStatus.GATEWAY_TIMEOUT, error: 'Gateway Timeout' },
   unavailable: { status: HttpStatus.SERVICE_UNAVAILABLE, error: 'Service Unavailable' },
+};
+
+/**
+ * Falhas da geracao de link.
+ *
+ * `AUTH_REQUIRED` e 409: nao e erro do chamador nem do servidor - e "um
+ * operador precisa autenticar a sessao uma vez".
+ */
+const AFFILIATE_STATUS: Record<GenerationFailure, { status: number; error: string }> = {
+  AUTH_REQUIRED: { status: HttpStatus.CONFLICT, error: 'Conflict' },
+  NO_ACTIVE_TAG: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  AMBIGUOUS_TAG: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  INVALID_RESPONSE: { status: HttpStatus.BAD_GATEWAY, error: 'Bad Gateway' },
+  INVALID_LINK: { status: HttpStatus.UNPROCESSABLE_ENTITY, error: 'Unprocessable Entity' },
+  RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, error: 'Too Many Requests' },
+  UNAVAILABLE: { status: HttpStatus.SERVICE_UNAVAILABLE, error: 'Service Unavailable' },
+  TIMEOUT: { status: HttpStatus.GATEWAY_TIMEOUT, error: 'Gateway Timeout' },
 };

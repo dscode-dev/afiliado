@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { productPayload } from './fixtures';
 
@@ -23,7 +22,7 @@ describe('Products', () => {
   it('cria um produto e devolve precos como string de 2 casas', async () => {
     const payload = productPayload({ currentPrice: '199.9' });
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/products')
       .send(payload)
       .expect(201);
@@ -42,9 +41,9 @@ describe('Products', () => {
   it('rejeita marketplaceItemId duplicado dentro do mesmo marketplace', async () => {
     const payload = productPayload();
 
-    await request(app.getHttpServer()).post('/products').send(payload).expect(201);
+    await authed(app).post('/products').send(payload).expect(201);
 
-    const conflict = await request(app.getHttpServer())
+    const conflict = await authed(app)
       .post('/products')
       .send({ ...payload, title: 'Outro titulo' })
       .expect(409);
@@ -54,12 +53,12 @@ describe('Products', () => {
   });
 
   it('edita um produto e preserva a identidade no marketplace', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await authed(app)
       .post('/products')
       .send(productPayload())
       .expect(201);
 
-    const updated = await request(app.getHttpServer())
+    const updated = await authed(app)
       .patch(`/products/${created.body.id}`)
       .send({ title: 'Titulo revisado', currentPrice: '149.00', active: false })
       .expect(200);
@@ -74,18 +73,18 @@ describe('Products', () => {
   });
 
   it('lista com filtro de active e devolve total paginado', async () => {
-    const first = await request(app.getHttpServer())
+    const first = await authed(app)
       .post('/products')
       .send(productPayload())
       .expect(201);
-    await request(app.getHttpServer()).post('/products').send(productPayload()).expect(201);
+    await authed(app).post('/products').send(productPayload()).expect(201);
 
-    await request(app.getHttpServer())
+    await authed(app)
       .patch(`/products/${first.body.id}`)
       .send({ active: false })
       .expect(200);
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .get('/products?active=true')
       .expect(200);
 
@@ -95,10 +94,10 @@ describe('Products', () => {
   });
 
   it('retorna 404 para produto inexistente e 400 para id nao-UUID', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/products/0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c')
       .expect(404);
 
-    await request(app.getHttpServer()).get('/products/nao-e-uuid').expect(400);
+    await authed(app).get('/products/nao-e-uuid').expect(400);
   });
 });

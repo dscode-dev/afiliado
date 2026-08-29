@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { productPayload } from './fixtures';
 
@@ -21,7 +20,7 @@ describe('Offers', () => {
   });
 
   async function createProduct(): Promise<string> {
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/products')
       .send(productPayload())
       .expect(201);
@@ -32,7 +31,7 @@ describe('Offers', () => {
   it('nasce com status DETECTED quando nenhum status e informado', async () => {
     const productId = await createProduct();
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/offers')
       .send({ productId, price: '149.90', originalPrice: '299.90', discountPercentage: '50' })
       .expect(201);
@@ -49,13 +48,13 @@ describe('Offers', () => {
 
   it('percorre a transicao de status ate APPROVED', async () => {
     const productId = await createProduct();
-    const created = await request(app.getHttpServer())
+    const created = await authed(app)
       .post('/offers')
       .send({ productId, price: '149.90' })
       .expect(201);
 
     for (const status of ['CANDIDATE', 'APPROVED'] as const) {
-      const updated = await request(app.getHttpServer())
+      const updated = await authed(app)
         .patch(`/offers/${created.body.id}`)
         .send({ status })
         .expect(200);
@@ -66,12 +65,12 @@ describe('Offers', () => {
 
   it('recusa status fora do conjunto definido', async () => {
     const productId = await createProduct();
-    const created = await request(app.getHttpServer())
+    const created = await authed(app)
       .post('/offers')
       .send({ productId, price: '149.90' })
       .expect(201);
 
-    await request(app.getHttpServer())
+    await authed(app)
       .patch(`/offers/${created.body.id}`)
       .send({ status: 'PUBLICADA' })
       .expect(400);
@@ -81,7 +80,7 @@ describe('Offers', () => {
   });
 
   it('recusa oferta para produto inexistente', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/offers')
       .send({ productId: '0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c', price: '10.00' })
       .expect(422);
@@ -90,7 +89,7 @@ describe('Offers', () => {
   it('recusa desconto fora do intervalo 0-100', async () => {
     const productId = await createProduct();
 
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/offers')
       .send({ productId, price: '10.00', discountPercentage: '150' })
       .expect(400);
@@ -99,16 +98,16 @@ describe('Offers', () => {
   it('filtra ofertas por status', async () => {
     const productId = await createProduct();
 
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/offers')
       .send({ productId, price: '10.00' })
       .expect(201);
-    await request(app.getHttpServer())
+    await authed(app)
       .post('/offers')
       .send({ productId, price: '20.00', status: 'APPROVED' })
       .expect(201);
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .get('/offers?status=APPROVED')
       .expect(200);
 

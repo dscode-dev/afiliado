@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MeliFakeServer } from './meli-fake-server';
 
@@ -30,7 +29,7 @@ describe('GET /products/:id/prices', () => {
   async function importAt(amount: number, regular?: number): Promise<string> {
     meli.seedItem({ id: ITEM_ID, title: 'Produto' }, { amount, regular });
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/products/import')
       .send({ marketplaceItemId: ITEM_ID })
       .expect(201);
@@ -43,7 +42,7 @@ describe('GET /products/:id/prices', () => {
     await importAt(829, 999);
     await importAt(799, 999);
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .get(`/products/${productId}/prices`)
       .expect(200);
 
@@ -65,7 +64,7 @@ describe('GET /products/:id/prices', () => {
     await importAt(200);
     await importAt(300);
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .get(`/products/${productId}/prices?limit=2`)
       .expect(200);
 
@@ -76,13 +75,13 @@ describe('GET /products/:id/prices', () => {
   it('rejeita limite invalido', async () => {
     const productId = await importAt(100);
 
-    await request(app.getHttpServer()).get(`/products/${productId}/prices?limit=0`).expect(400);
-    await request(app.getHttpServer()).get(`/products/${productId}/prices?limit=99999`).expect(400);
-    await request(app.getHttpServer()).get(`/products/${productId}/prices?limit=abc`).expect(400);
+    await authed(app).get(`/products/${productId}/prices?limit=0`).expect(400);
+    await authed(app).get(`/products/${productId}/prices?limit=99999`).expect(400);
+    await authed(app).get(`/products/${productId}/prices?limit=abc`).expect(400);
   });
 
   it('devolve lista vazia para produto sem historico', async () => {
-    const created = await request(app.getHttpServer())
+    const created = await authed(app)
       .post('/products')
       .send({
         marketplace: 'MERCADO_LIVRE',
@@ -92,7 +91,7 @@ describe('GET /products/:id/prices', () => {
       })
       .expect(201);
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .get(`/products/${created.body.id}/prices`)
       .expect(200);
 
@@ -100,10 +99,10 @@ describe('GET /products/:id/prices', () => {
   });
 
   it('retorna 404 para produto inexistente e 400 para id nao-UUID', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/products/0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c/prices')
       .expect(404);
-    await request(app.getHttpServer()).get('/products/nao-uuid/prices').expect(400);
+    await authed(app).get('/products/nao-uuid/prices').expect(400);
   });
 
   it('remove o historico junto com o produto', async () => {

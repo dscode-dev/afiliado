@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase } from './app-harness';
+import { authed, createTestHarness, resetDatabase } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { productPayload } from './fixtures';
 
@@ -62,7 +61,7 @@ describe('Publications', () => {
   it('lista publicacoes com canal e oferta relacionados', async () => {
     const { channel, offer } = await seedPublication();
 
-    const response = await request(app.getHttpServer()).get('/publications').expect(200);
+    const response = await authed(app).get('/publications').expect(200);
 
     expect(response.body.total).toBe(1);
     expect(response.body.data[0]).toMatchObject({
@@ -77,12 +76,12 @@ describe('Publications', () => {
   it('filtra publicacoes por status e por canal', async () => {
     const { channel } = await seedPublication();
 
-    await request(app.getHttpServer())
+    await authed(app)
       .get(`/publications?channelId=${channel.id}`)
       .expect(200)
       .expect((response) => expect(response.body.total).toBe(1));
 
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/publications?status=PUBLISHED')
       .expect(200)
       .expect((response) => expect(response.body.total).toBe(0));

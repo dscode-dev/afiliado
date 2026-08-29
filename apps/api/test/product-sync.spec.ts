@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MeliFakeServer } from './meli-fake-server';
 
@@ -32,7 +31,7 @@ describe('Sincronizacao de produtos', () => {
       { amount },
     );
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .post('/products/import')
       .send({ marketplaceItemId: id })
       .expect(201);
@@ -49,7 +48,7 @@ describe('Sincronizacao de produtos', () => {
         { amount: 699.0, regular: 899.0 },
       );
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/products/${productId}/sync`)
         .expect(200);
 
@@ -63,7 +62,7 @@ describe('Sincronizacao de produtos', () => {
     it('reporta unchanged e nao gera ruido no historico', async () => {
       const productId = await importItem('MLB1000000002', 50);
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/products/${productId}/sync`)
         .expect(200);
 
@@ -76,7 +75,7 @@ describe('Sincronizacao de produtos', () => {
       const productId = await importItem('MLB1000000003', 50);
       const before = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
 
-      await request(app.getHttpServer()).post(`/products/${productId}/sync`).expect(200);
+      await authed(app).post(`/products/${productId}/sync`).expect(200);
 
       const after = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
       expect(after.lastSyncedAt!.getTime()).toBeGreaterThanOrEqual(before.lastSyncedAt!.getTime());
@@ -88,7 +87,7 @@ describe('Sincronizacao de produtos', () => {
 
       meli.failOn('/items/MLB1000000004', { status: 500 });
 
-      await request(app.getHttpServer()).post(`/products/${productId}/sync`).expect(503);
+      await authed(app).post(`/products/${productId}/sync`).expect(503);
 
       const after = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
       expect(after.currentPrice.toFixed(2)).toBe(before.currentPrice.toFixed(2));
@@ -98,7 +97,7 @@ describe('Sincronizacao de produtos', () => {
     });
 
     it('retorna 404 para produto inexistente', async () => {
-      await request(app.getHttpServer())
+      await authed(app)
         .post('/products/0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c/sync')
         .expect(404);
     });
@@ -114,7 +113,7 @@ describe('Sincronizacao de produtos', () => {
       meli.seedItem({ id: 'MLB2000000001', title: 'Produto MLB2000000001' }, { amount: 150 });
       meli.failOn('/items/MLB2000000003', { status: 500 });
 
-      const response = await request(app.getHttpServer()).post('/products/sync').expect(200);
+      const response = await authed(app).post('/products/sync').expect(200);
 
       expect(response.body).toMatchObject({ total: 3, synced: 1, unchanged: 1, failed: 1 });
       expect(response.body.failures).toEqual([
@@ -129,7 +128,7 @@ describe('Sincronizacao de produtos', () => {
       meli.failOn('/items/MLB3000000001', { status: 404 });
       meli.seedItem({ id: 'MLB3000000002', title: 'Produto MLB3000000002' }, { amount: 25 });
 
-      const response = await request(app.getHttpServer()).post('/products/sync').expect(200);
+      const response = await authed(app).post('/products/sync').expect(200);
 
       expect(response.body).toMatchObject({ total: 2, synced: 1, failed: 1 });
       expect(response.body.failures[0]).toMatchObject({ reason: 'not_found' });
@@ -149,12 +148,12 @@ describe('Sincronizacao de produtos', () => {
       const productId = await importItem('MLB4000000001', 10);
       await importItem('MLB4000000002', 20);
 
-      await request(app.getHttpServer())
+      await authed(app)
         .patch(`/products/${productId}`)
         .send({ active: false })
         .expect(200);
 
-      const response = await request(app.getHttpServer()).post('/products/sync').expect(200);
+      const response = await authed(app).post('/products/sync').expect(200);
 
       expect(response.body.total).toBe(1);
     });
@@ -164,14 +163,14 @@ describe('Sincronizacao de produtos', () => {
       await importItem('MLB5000000002', 20);
       const requestsBefore = meli.countRequests('/categories/MLB1051');
 
-      await request(app.getHttpServer()).post('/products/sync').expect(200);
+      await authed(app).post('/products/sync').expect(200);
 
       // Dois produtos, mesma categoria: apenas uma consulta adicional no lote.
       expect(meli.countRequests('/categories/MLB1051') - requestsBefore).toBe(1);
     });
 
     it('devolve relatorio vazio quando nao ha produtos ativos', async () => {
-      const response = await request(app.getHttpServer()).post('/products/sync').expect(200);
+      const response = await authed(app).post('/products/sync').expect(200);
 
       expect(response.body).toMatchObject({ total: 0, synced: 0, unchanged: 0, failed: 0 });
     });

@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeTelegram } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeTelegram } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { TelegramFakeServer } from './telegram-fake-server';
 
@@ -104,7 +103,7 @@ describe('Publicacao no Telegram', () => {
   }
 
   const publish = (offerId: string, channelId: string) =>
-    request(app.getHttpServer()).post(`/offers/${offerId}/publish`).send({ channelId });
+    authed(app).post(`/offers/${offerId}/publish`).send({ channelId });
 
   describe('caminho feliz', () => {
     it('publica com imagem e persiste o externalMessageId', async () => {
@@ -236,14 +235,14 @@ describe('Publicacao no Telegram', () => {
     it('valida ids e existencia de oferta e canal', async () => {
       const { offer, channel } = await seed();
 
-      await request(app.getHttpServer())
+      await authed(app)
         .post('/offers/nao-uuid/publish')
         .send({ channelId: channel.id })
         .expect(400);
 
       await publish(offer.id, '0f1a4b2c-8d3e-4f5a-9b6c-7d8e9f0a1b2c').expect(404);
 
-      await request(app.getHttpServer())
+      await authed(app)
         .post(`/offers/${offer.id}/publish`)
         .send({})
         .expect(400);

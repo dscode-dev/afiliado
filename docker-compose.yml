@@ -104,6 +104,20 @@ services:
       FACEBOOK_MAX_POSTS_PER_DAY: ${FACEBOOK_MAX_POSTS_PER_DAY:-6}
       FACEBOOK_MIN_SCORE: ${FACEBOOK_MIN_SCORE:-85}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+
+      # affiliate-bot (adapter nao oficial da Central de Afiliados)
+      AFFILIATE_BOT_URL: http://affiliate-bot:3400
+      AFFILIATE_BOT_SECRET: ${AFFILIATE_BOT_SECRET:-}
+      AFFILIATE_GENERATION_CONCURRENCY: ${AFFILIATE_GENERATION_CONCURRENCY:-3}
+      # Chave que cifra o refresh token do Mercado Livre
+      MELI_TOKEN_SECRET: ${MELI_TOKEN_SECRET:-}
+
+      # Autenticacao administrativa
+      ADMIN_SESSION_TTL_HOURS: ${ADMIN_SESSION_TTL_HOURS:-12}
+      ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
+      ADMIN_LOGIN_WINDOW_MINUTES: ${ADMIN_LOGIN_WINDOW_MINUTES:-15}
+      # Ajuste para `true` ou o numero de saltos quando houver reverse proxy.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
       # Publicado apenas em loopback: nao ha autenticacao ainda.
       - "127.0.0.1:${API_PORT:-3333}:3333"
@@ -122,6 +136,27 @@ services:
       timeout: 5s
       retries: 6
       start_period: 15s
+
+  # Gera os links de afiliado a partir de uma sessao real da Central.
+  # Separado da API de proposito: se cair, o Garimpo continua operando com os
+  # links que ja existem (ver README, "Failure containment").
+  affiliate-bot:
+    build:
+      context: .
+      dockerfile: apps/affiliate-bot/Dockerfile
+    container_name: garimpo-affiliate-bot
+    restart: unless-stopped
+    environment:
+      AFFILIATE_BOT_PORT: 3400
+      AFFILIATE_BOT_SECRET: ${AFFILIATE_BOT_SECRET:-}
+      AFFILIATE_BOT_HEADLESS: ${AFFILIATE_BOT_HEADLESS:-true}
+      AFFILIATE_BOT_TIMEOUT_MS: ${AFFILIATE_BOT_TIMEOUT_MS:-45000}
+      AFFILIATE_TAG: ${AFFILIATE_TAG:-}
+    volumes:
+      # Sessao real da conta: volume privado, nunca a imagem nem o git.
+      - affiliate-profile:/profile
+    ports:
+      - "127.0.0.1:3400:3400"
 
   admin:
     build:
@@ -144,3 +179,5 @@ services:
 
 volumes:
   afiliado-pgdata:
+  # Perfil do browser do affiliate-bot. Contem sessao real: mantenha privado.
+  affiliate-profile:

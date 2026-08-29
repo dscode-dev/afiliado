@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MercadoLivreConfig } from '../src/modules/marketplace/mercado-livre/mercado-livre.config';
 import { MeliFakeServer } from './meli-fake-server';
@@ -30,7 +29,7 @@ describe('Erros da integracao Mercado Livre', () => {
   });
 
   const importItem = (id = ITEM_ID) =>
-    request(app.getHttpServer()).post('/products/import').send({ marketplaceItemId: id });
+    authed(app).post('/products/import').send({ marketplaceItemId: id });
 
   it('traduz item inexistente em 404', async () => {
     const response = await importItem('MLB9999999999').expect(404);

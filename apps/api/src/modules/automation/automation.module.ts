@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AffiliateModule } from '../affiliate/affiliate.module';
 import { CatalogModule } from '../catalog/catalog.module';
 import { DistributionModule } from '../distribution/distribution.module';
 import { OpportunityModule } from '../opportunity/opportunity.module';
@@ -15,7 +16,7 @@ import { DistributionPolicyService } from './distribution-policy.service';
  * Nao introduz integracao externa nova - apenas orquestra o que ja havia.
  */
 @Module({
-  imports: [CatalogModule, OpportunityModule, DistributionModule],
+  imports: [AffiliateModule, CatalogModule, OpportunityModule, DistributionModule],
   controllers: [AutomationController],
   providers: [
     // Factory explicita: a config le process.env, nao dependencias injetadas.

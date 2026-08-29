@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MeliFakeServer } from './meli-fake-server';
 
@@ -43,7 +42,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
     });
     meli.items.set('MLB1000000002', { id: 'MLB1000000002', title: 'Celular B', price: 999 });
 
-    const response = await request(app.getHttpServer()).get(PATH).expect(200);
+    const response = await authed(app).get(PATH).expect(200);
 
     expect(response.body).toMatchObject({
       siteId: 'MLB',
@@ -78,7 +77,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
       });
     }
 
-    await request(app.getHttpServer()).get(PATH).expect(200);
+    await authed(app).get(PATH).expect(200);
 
     expect(meli.countRequests('/items?ids=')).toBe(1);
   });
@@ -92,7 +91,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
       buy_box_winner: { item_id: 'MLB1234567890', price: 5499, currency_id: 'BRL' },
     });
 
-    const response = await request(app.getHttpServer()).get(PATH).expect(200);
+    const response = await authed(app).get(PATH).expect(200);
 
     expect(response.body.data[0]).toMatchObject({
       type: 'PRODUCT',
@@ -107,7 +106,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
   it('mantem a linha mesmo quando o item nao resolve', async () => {
     meli.highlights.set(CATEGORY, [{ id: 'MLB7777777777', position: 1, type: 'ITEM' }]);
 
-    const response = await request(app.getHttpServer()).get(PATH).expect(200);
+    const response = await authed(app).get(PATH).expect(200);
 
     expect(response.body.data[0]).toMatchObject({
       id: 'MLB7777777777',
@@ -126,7 +125,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
       })),
     );
 
-    const response = await request(app.getHttpServer()).get(PATH).expect(200);
+    const response = await authed(app).get(PATH).expect(200);
 
     expect(response.body.total).toBe(20);
   });
@@ -135,19 +134,19 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
     meli.highlights.set(CATEGORY, [{ id: 'MLB1000000001', position: 1, type: 'ITEM' }]);
     meli.items.set('MLB1000000001', { id: 'MLB1000000001', title: 'Celular A' });
 
-    await request(app.getHttpServer()).get(PATH).expect(200);
+    await authed(app).get(PATH).expect(200);
 
     expect(await prisma.product.count()).toBe(0);
   });
 
   it('valida o formato do categoryId antes de chamar o provider', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/marketplace/mercado-livre/highlights?categoryId=abc')
       .expect(400);
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/marketplace/mercado-livre/highlights?categoryId=MLA1051')
       .expect(400);
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/marketplace/mercado-livre/highlights')
       .expect(400);
 
@@ -155,7 +154,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
   });
 
   it('traduz categoria inexistente em 404', async () => {
-    await request(app.getHttpServer())
+    await authed(app)
       .get('/marketplace/mercado-livre/highlights?categoryId=MLB0000')
       .expect(404);
   });
@@ -165,7 +164,7 @@ describe('GET /marketplace/mercado-livre/highlights', () => {
     meli.items.set('MLB1000000001', { id: 'MLB1000000001', title: 'Celular A' });
     meli.failOn(`/categories/${CATEGORY}`, { status: 500 });
 
-    const response = await request(app.getHttpServer()).get(PATH).expect(200);
+    const response = await authed(app).get(PATH).expect(200);
 
     expect(response.body.categoryName).toBeNull();
     expect(response.body.data).toHaveLength(1);

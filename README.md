@@ -9,20 +9,22 @@ distribui as melhores em canais públicos (Telegram, Facebook, WhatsApp). O clie
 sempre levado **diretamente ao Mercado Livre** — não existe checkout, pagamento, estoque,
 logística nem atendimento transacional próprio.
 
-> **Estado atual: PR-07 — WhatsApp Distribution + Garimpo Branding.**
-> Fecha a distribuição da V1: Telegram e Facebook publicam automaticamente, WhatsApp é
-> semiassistido (a Meta não oferece API oficial para Canais). O painel passa a ser o **Garimpo**.
+> **Estado atual: PR-09 — Mercado Livre real + geração automática de link de afiliado.**
+> O pipeline fecha ponta a ponta sem ação humana por produto: produto real → link de afiliado
+> gerado sozinho → oportunidade avaliada → publicação. **Sem link, não publica.**
 
 ## Visão do fluxo
 
 ```text
-Mercado Livre           [PR-02 — integrado]
+Mercado Livre           [PR-02 — integrado · PR-09 OAuth Authorization Code]
       ↓
 Product / PriceSnapshot [PR-02 — dados reais]
       ↓
+Affiliate Link Generator [PR-09 — automático, adapter NÃO oficial]
+      ↓
 Opportunity Engine      [PR-03 — score determinístico]
       ↓
-Affiliate Link          [manual, por decisão — obrigatório para elegibilidade]
+AffiliateLink           [PR-09 — gerado automaticamente; obrigatório para publicar]
       ↓
 Offer                   [PR-03 — gerada automaticamente]
       ↓
@@ -123,12 +125,18 @@ Monorepo com **npm workspaces**. Sem Turborepo, Nx ou framework interno.
 │   │   │       │   ├── facebook/
 │   │   │       │   ├── whatsapp/  # renderer (sem API oficial)
 │   │   │       │   └── manual/    # fluxo semiassistido
+│   │   │       ├── affiliate/     # AffiliateLink + generation/ (gerador)
+│   │   │       ├── auth/          # AdminUser, sessões, guard global
 │   │   │       ├── automation/    # orquestrador, scheduler, política
 │   │   │       └── analytics/     # contadores do dashboard
 │   │   └── test/                # testes de integração
+│   ├── affiliate-bot/           # adapter NÃO oficial: sessão + geração de link
+│   │   ├── Dockerfile
+│   │   └── src/                 # console adapter, servidor HTTP, login
 │   └── admin/                   # Next.js (painel Garimpo)
 │       ├── Dockerfile           # build -> standalone
 │       ├── public/assets/       # logo servida em /assets/logo.png
+│       └── app/(app)/           # rotas autenticadas; /login fica fora
 │       ├── app/                 # uma pasta por tela (page.tsx + actions.ts)
 │       ├── components/          # formulário genérico, ações de linha, helpers de UI
 │       └── lib/                 # cliente HTTP da API interna e tipos
@@ -197,8 +205,9 @@ corrida entre schema e aplicação.
 O admin fala com a API pela rede interna do compose (`http://api:3333`). Todas as chamadas são
 server-side (Server Components e Server Actions), então nada disso é resolvido pelo browser.
 
-> **Todas as portas são publicadas apenas em `127.0.0.1`.** Não existe autenticação ainda — a
-> stack não pode ficar acessível na rede. Ver *Dívidas conhecidas*.
+> **Todas as portas são publicadas apenas em `127.0.0.1`.** O painel e a API já exigem
+> autenticação (ver *Autenticação administrativa*), mas expor na rede continua sendo uma decisão
+> explícita: sirva por HTTPS e ajuste `TRUST_PROXY` e `CORS_ORIGINS` antes.
 
 > **Não escale `api` para mais de uma réplica.** A trava do autopilot é em memória (ver
 > *Autopilot → Premissa: instância única*).
@@ -281,6 +290,16 @@ Todas em `.env` na raiz, compartilhado por API e admin. Ver `.env.example`.
 | `FACEBOOK_MAX_POSTS_PER_HOUR` | não | Limite por Page por hora (padrão `1`) |
 | `FACEBOOK_MAX_POSTS_PER_DAY` | não | Limite por Page por dia (padrão `6`) |
 | `FACEBOOK_MIN_SCORE` | não | Score mínimo para publicação automática (padrão `85`) |
+| `ADMIN_SESSION_TTL_HOURS` | não | Duração da sessão administrativa (padrão `12`) |
+| `ADMIN_LOGIN_MAX_ATTEMPTS` | não | Tentativas de login por janela (padrão `5`) |
+| `ADMIN_LOGIN_WINDOW_MINUTES` | não | Janela do freio de força bruta (padrão `15`) |
+| `TRUST_PROXY` | não | Confiança em reverse proxy: `false` (padrão), `true`, nº de saltos ou lista de IPs |
+| `MELI_TOKEN_SECRET` | OAuth | **Secret.** Cifra o refresh token rotativo no banco |
+| `AFFILIATE_BOT_URL` | não | URL do affiliate-bot (padrão `http://localhost:3400`) |
+| `AFFILIATE_BOT_SECRET` | não | **Secret.** Compartilhado entre API e bot |
+| `AFFILIATE_BROWSER_PROFILE_PATH` | não | Perfil persistente do browser. **Contém sessão real** |
+| `AFFILIATE_TAG` | não | Força uma tag; vazio = descoberta automática |
+| `AFFILIATE_GENERATION_CONCURRENCY` | não | Concorrência da geração em lote (padrão `3`) |
 | `APP_TIMEZONE` | não | Timezone da janela (padrão `America/Sao_Paulo`) |
 
 `APP_ENV`, `API_PORT` e `DATABASE_URL` são validados no boot: a aplicação falha rápido e com
@@ -316,6 +335,9 @@ pode ordenar antes das anteriores e quebrar um banco criado do zero.
    `affiliate_links`, `UNIQUE (productId, price)` em `offers` e a tabela
    `opportunity_evaluations`.
 6. `publication_idempotency` — `UNIQUE (offerId, channelId)` em `publications`.
+7. `admin_authentication` — `admin_users` e `admin_sessions`, com `email` e `tokenHash` únicos.
+8. `affiliate_generation_and_oauth` — `source`/`tag`/`originUrl`/`generatedAt`/`verifiedAt` em
+   `affiliate_links`, e `marketplace_credentials` (refresh token cifrado).
 
 Constraints relevantes:
 
@@ -333,15 +355,27 @@ Constraints relevantes:
 - `opportunity_evaluations.productId` **UNIQUE** + **CASCADE** — uma avaliação por produto.
 - `publications (offerId, channelId)` **UNIQUE** — uma oferta é publicada no máximo uma vez por
   canal; é essa constraint que impede duplicidade sob chamadas concorrentes.
+- `admin_users.email` **UNIQUE** e `admin_sessions.tokenHash` **UNIQUE**, com `admin_sessions`
+  em **CASCADE**: apagar o admin encerra as sessões dele.
 
 ## API
 
-Base: `http://localhost:3333`. Todas as listagens aceitam `?take=` (máx. 100) e `?skip=`, e
+Base: `http://localhost:3333`. **Todos os endpoints exigem sessão**, exceto os marcados como
+públicos (ver *Autenticação administrativa*). Todas as listagens aceitam `?take=` (máx. 100) e `?skip=`, e
 respondem `{ data, total, take, skip }`.
 
 | Método  | Rota                   | Descrição                                            |
 | ------- | ---------------------- | ---------------------------------------------------- |
-| `GET`   | `/health`              | Aplicação + PostgreSQL (503 se o banco cair)         |
+| `GET`   | `/health`              | **Público.** Aplicação + PostgreSQL (503 se o banco cair) |
+| `POST`  | `/auth/login`          | **Público.** Abre sessão administrativa              |
+| `POST`  | `/auth/logout`         | **Público.** Encerra a sessão; idempotente           |
+| `GET`   | `/auth/me`             | Identidade da sessão atual                           |
+| `GET`   | `/auth/mercado-livre/authorize` | Inicia a autorização OAuth (uma vez)        |
+| `GET`   | `/auth/mercado-livre/callback`  | **Público.** Callback do Mercado Livre      |
+| `GET`   | `/auth/mercado-livre/status`    | Se a integração já está autorizada          |
+| `GET`   | `/affiliate-links/generation/status` | Sessão do bot e tag ativa              |
+| `POST`  | `/affiliate-links/generate` | Gera os links que faltam (lote)                 |
+| `POST`  | `/affiliate-links/generate/:productId` | Garante link de um produto           |
 | `GET`   | `/products`            | Filtros: `active`, `marketplace`, `search`           |
 | `GET`   | `/products/:id`        |                                                      |
 | `POST`  | `/products`            |                                                      |
@@ -395,6 +429,174 @@ Toda falha responde no mesmo formato:
 
 `stack` só aparece fora de `APP_ENV=production`. Erros do Prisma são traduzidos: `P2002` → 409,
 `P2003` → 422, `P2025` → 404.
+
+## Autenticação administrativa
+
+O Garimpo é um painel de operador único ou equipe interna pequena. A autenticação é
+proporcional a isso: **email e senha, sessão em cookie, nada além**. Sem organizações, RBAC,
+SSO, MFA ou cadastro público.
+
+### Modelo
+
+```text
+Browser
+   ↓  formulário de login
+Next.js (Server Action)
+   ↓  POST /auth/login
+API  ──►  token opaco + AdminSession
+   ↓
+Cookie HttpOnly na origem do painel
+   ↓  Authorization: Bearer <token>
+API valida a cada requisição
+```
+
+**Fonte única da verdade: a API.** O painel não mantém sessão própria — guarda o token opaco
+emitido pela API e o encaminha. Não há duas sessões para sair de sincronia.
+
+O token vai para a API como `Authorization: Bearer`, nunca como cookie ambiente — então **a API
+não tem superfície de CSRF**. Ver *CSRF* abaixo.
+
+### Primeiro administrador
+
+Não existe cadastro público. O primeiro admin é criado por comando:
+
+```bash
+npm run admin:create
+# Email do admin: operador@exemplo.com
+# Senha:            (não aparece na tela)
+# Confirme a senha: (não aparece na tela)
+```
+
+A senha é lida com o eco desligado — não aparece no terminal, no histórico do shell nem em log.
+Mínimo de 12 caracteres. **Se já existir admin com aquele email, o comando falha e não altera
+nada**: recriar seria uma troca silenciosa de senha.
+
+### Senhas
+
+**argon2id**, com os parâmetros recomendados pelo OWASP: 19 MiB de memória, 2 iterações,
+paralelismo 1. Cada senha tem salt próprio, então a mesma senha gera hashes diferentes.
+
+Em `APP_ENV=test` o custo cai (4 MiB, 1 iteração) para a suíte não ficar impraticável — o custo
+do KDF não é o que protege um banco de testes.
+
+Nunca SHA-256, MD5 ou cifra reversível para senha.
+
+> **Por que o token de sessão usa SHA-256, então?** Porque não é uma senha. O token são 32 bytes
+> de CSPRNG — entropia alta demais para força bruta, então um KDF lento não acrescentaria nada.
+> No banco fica apenas `sha256(token)`; vazamento do banco não permite reconstruir o token.
+
+### Sessão
+
+| | |
+| --- | --- |
+| Cookie | `garimpo_session` |
+| Flags | `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` em produção |
+| TTL | `ADMIN_SESSION_TTL_HOURS` (padrão **12h**) |
+| Armazenamento | `admin_sessions` — só o hash do token |
+
+`HttpOnly` significa que **o JavaScript da página nunca alcança o token**. Nada é guardado em
+`localStorage` ou `sessionStorage` — há teste que verifica isso em todo o painel.
+
+`Secure` só é ligado em produção; em `http://localhost` o cookie seria descartado pelo browser.
+
+Sessão expirada, revogada, ou de usuário desativado → **401**, e a linha expirada é removida.
+Não há renovação automática: passadas as 12h, entra de novo.
+
+**Limpeza**: sessões vencidas são apagadas no próprio login e na validação. Sem job dedicado.
+
+### Logout
+
+```bash
+curl -X POST http://localhost:3333/auth/logout -H "Authorization: Bearer <token>"
+```
+
+Invalida a sessão no banco e limpa o cookie. **Idempotente**: sem token, ou com token já
+inválido, responde `204` do mesmo jeito. Encerrar uma sessão não derruba as outras do mesmo
+usuário.
+
+No painel, o botão **Sair** fica no rodapé da sidebar, ao lado do email do admin.
+
+### O que é público
+
+A API é **autenticada por padrão**: o guard é global e só rotas marcadas com `@Public()` ficam
+abertas. Um controller novo nasce protegido — não depende de alguém lembrar de protegê-lo.
+
+| Rota | Por quê |
+| ---- | ------- |
+| `GET /health` | Orquestradores precisam consultar sem credencial. Devolve apenas status, uptime e o resultado do ping no banco — nunca versão, URL do banco, token ou stack |
+| `POST /auth/login` | Óbvio |
+| `POST /auth/logout` | Idempotente e inofensivo |
+
+**Todo o resto exige sessão**, incluindo leitura: `/products`, `/affiliate-links`, `/channels`,
+`/offers`, `/opportunities`, `/publications`, `/analytics`, `/automation`, `/marketplace/*`.
+
+As mais sensíveis — `POST /automation/run`, `/offers/:id/publish`, `/offers/:id/publish-all`,
+`/publications/:id/retry`, `/offers/:id/manual-publication`, `/channels/:id/test` — têm teste
+próprio garantindo `401` anônimo.
+
+### Painel
+
+`/login` é a única rota pública. Todas as demais vivem no grupo autenticado, cujo layout chama
+`requireAdmin()` a cada render: sem sessão, `redirect('/login')`. Anônimo tentando `/dashboard`
+recebe **307 → /login**; autenticado tentando `/login` vai para `/dashboard`.
+
+**Server Actions validam a sessão explicitamente.** Uma action não é segura só porque a página
+exige login — ela é um endpoint POST próprio. Toda action administrativa começa com
+`await requireAdmin()`, e há teste que falha se alguma exportação escapar disso.
+
+O cliente HTTP do painel também trata `401` da API redirecionando para `/login`, porque layout e
+página renderizam em paralelo: o redirect do layout sozinho não impediria a página de estourar
+antes.
+
+### CSRF
+
+Proporcional à arquitetura, sem framework adicional:
+
+1. **A API não aceita credencial ambiente para operações do painel** — o token vai por
+   `Authorization: Bearer`, que um formulário cross-site não consegue enviar.
+2. **`SameSite=Lax`** no cookie do painel: o browser não o envia em POST cross-site.
+3. **Server Actions do Next.js** verificam a origem da requisição por padrão.
+
+O cookie é aceito pela API apenas como conveniência para acesso direto por browser; o painel não
+depende disso.
+
+### Força bruta
+
+Contador em memória por **email + IP**: `ADMIN_LOGIN_MAX_ATTEMPTS` (padrão 5) tentativas em
+`ADMIN_LOGIN_WINDOW_MINUTES` (padrão 15). Excedido, responde `429` com `Retry-After`.
+
+**A conta nunca é bloqueada permanentemente** — a janela expira sozinha, e um login bem-sucedido
+zera o contador.
+
+O login também nivela o tempo de resposta entre "email inexistente" e "senha errada": quando o
+usuário não existe, ainda gastamos uma verificação argon2, para não vazar a existência do email
+por timing. A mensagem é sempre a mesma: `Invalid credentials`.
+
+> ⚠️ O contador vive na memória do processo. Isso basta na **instância única** da V1; múltiplas
+> réplicas exigiriam storage compartilhado — mesma limitação já documentada para o autopilot.
+
+### Logs
+
+Registramos `login_success` (com `adminUserId`), `login_failed` (com o motivo interno), `logout`
+e `session_expired`.
+
+**Nunca** senha, cookie, token de sessão, hash ou header `Authorization`. Verificado no smoke:
+zero ocorrências da senha, do token e de hash argon2 nos logs de API e painel.
+
+### Deployment
+
+> **O Garimpo já pode sair do localhost** — mas atrás de HTTPS. `Secure` só é aplicado ao cookie
+> quando `APP_ENV=production` / `NODE_ENV=production`; servir o painel em HTTP puro na rede
+> exporia o cookie de sessão.
+
+**Reverse proxy**: `TRUST_PROXY` é explícito e vem `false` por padrão. Aceita `true`, um número
+de saltos, ou lista de IPs/sub-redes. Confiar cegamente em `X-Forwarded-For` deixaria qualquer
+cliente forjar o próprio IP e escapar do limite de tentativas de login — por isso o padrão é não
+confiar. Ligue-o **apenas** quando houver de fato um proxy à frente, e prefira o número de saltos
+ou a lista de IPs a `true`.
+
+O `docker-compose` continua publicando as portas em `127.0.0.1`. Para expor, coloque um proxy com
+TLS à frente e ajuste `TRUST_PROXY` e `CORS_ORIGINS`.
 
 ## Integração Mercado Livre
 
@@ -551,6 +753,176 @@ token nem corpo da resposta**.
   então um lote inteiro na mesma categoria custa uma chamada. Não há cache entre requisições.
 - O access token vive só no processo: reiniciar a API pede um token novo.
 - Não há scheduler. Sincronizar é sempre uma ação explícita do operador.
+
+## Geração automática de link de afiliado
+
+O Garimpo transforma um produto elegível em link de afiliado **sozinho**. Não há copiar/colar,
+nem operador abrindo produto, nem montagem manual de URL.
+
+> ### ⚠️ Esta parte NÃO é API oficial
+>
+> A API de Developers do Mercado Livre **não expõe** geração de link de afiliado. O que existe é
+> a Central de Afiliados, um site. O `affiliate-bot` mantém uma sessão real dessa Central e usa
+> os endpoints internos que ela própria consome:
+>
+> ```text
+> GET  /affiliate-program/api/v2/stripe/user/tags
+> POST /affiliate-program/api/v2/stripe/user/links   { url, tag }
+> ```
+>
+> Isso é um **`UNOFFICIAL_WEB_ADAPTER`**, e está isolado em `apps/affiliate-bot` justamente por
+> isso. Ver *Riscos* no fim desta seção — eles são reais e não estão mascarados.
+
+### O que é oficial e o que não é
+
+| Dado | Origem | Status |
+| ---- | ------ | ------ |
+| Catálogo, preço, categoria, vendedor, highlights | API de Developers | **Oficial** |
+| Link de afiliado | Central de Afiliados (endpoints internos) | **Não oficial** |
+
+**O browser existe exclusivamente para gerar o link.** Catálogo, preços, vendedor e highlights
+continuam vindo da API oficial — nunca do browser.
+
+### Fluxo
+
+```text
+Product (permalink)  ──►  affiliate-bot  ──►  Central de Afiliados
+                                                     │
+                          AffiliateLink  ◄───────────┘
+                          source = MERCADO_LIVRE_AFFILIATE_WEB
+```
+
+O bot é um **processo separado**. Se cair, a API, o Opportunity Engine e as publicações de links
+já existentes continuam funcionando — só deixam de surgir links novos.
+
+### Sessão
+
+O bot usa um **contexto persistente do Playwright**. A sessão é do operador, autenticada **uma
+vez**:
+
+```bash
+npm run affiliate:login     # abre o browser; você entra no Mercado Livre
+```
+
+Não há tentativa de burlar MFA, captcha, challenge ou confirmação de dispositivo. Quando a sessão
+cai, o bot responde `AUTH_REQUIRED` e o painel avisa.
+
+> Autenticar a conta de tempos em tempos **não é operação manual por produto** — que é o que este
+> PR elimina. Um login eventual cobre milhares de links.
+
+O perfil do browser guarda cookies reais da conta:
+
+| | |
+| --- | --- |
+| Caminho | `AFFILIATE_BROWSER_PROFILE_PATH` |
+| Git | ignorado (`.gitignore`) |
+| Imagem Docker | **não entra** — montado como volume privado |
+| Logs | nunca |
+
+### Tag
+
+O bot descobre a tag ativa sozinho em `/tags`. Com várias candidatas e nenhuma marcada como em
+uso, **falha explicitamente** (`AMBIGUOUS_TAG`) em vez de escolher ao acaso — uma tag errada
+atribuiria a comissão a outro lugar. Para forçar, use `AFFILIATE_TAG`.
+
+### Fail-closed
+
+Se a geração falhar, o produto simplesmente fica sem link:
+
+```text
+sem AffiliateLink ativo  →  NOT_ELIGIBLE  →  não publica
+```
+
+**O `Product.permalink` NUNCA é usado como alternativa.** Publicar o permalink seria tráfego não
+monetizado — exatamente o que o Garimpo existe para evitar.
+
+Antes de persistir, o link é validado: HTTPS, host do Mercado Livre, tag igual à ativa,
+`origin_url` do mesmo produto, e — o mais importante — **precisa carregar rastreio de afiliado**
+(short link `/sec/…` ou parâmetros `matt_tool`/`matt_word`). Comparar com o permalink não
+bastaria: `www.mercadolivre.com.br/MLB-123` e `produto.mercadolivre.com.br/MLB-123` são a mesma
+página não monetizada com hosts diferentes. A URL nunca é reconstruída por nós.
+
+### Idempotência
+
+Um link ativo por produto. Regerar com o link já existente não chama o provider (`unchanged`); um
+link novo desativa o anterior em vez de acumular. **Link cadastrado manualmente tem precedência**
+e não é sobrescrito.
+
+### Quando gera
+
+Automaticamente, no ciclo do autopilot, **antes da avaliação**:
+
+```text
+sync → refresh popularity → ensure affiliate links → evaluate → publish
+```
+
+A ordem importa: sem link, a oportunidade seria `NOT_ELIGIBLE` e nunca chegaria à distribuição.
+
+Manualmente:
+
+```bash
+curl -X POST http://localhost:3333/affiliate-links/generate            # todos os que faltam
+curl -X POST http://localhost:3333/affiliate-links/generate/<productId>
+curl http://localhost:3333/affiliate-links/generation/status
+```
+
+Concorrência 3 (`AFFILIATE_GENERATION_CONCURRENCY`, máx. 5) — a Central é um site, não uma API.
+Uma falha não interrompe o lote; sessão caída interrompe cedo, porque insistir só gastaria tempo.
+
+Retry: **uma** repetição, só em falha claramente transitória (5xx, rede). `AUTH_REQUIRED`,
+sessão inválida e challenge **nunca** entram em loop.
+
+No painel: **Automação de afiliados** mostra sessão, tag ativa, produtos sem link e o botão
+*Gerar links que faltam*.
+
+### Riscos — assumidos, não mascarados
+
+1. **O endpoint interno pode mudar ou sumir sem aviso.** Não há contrato de API. Se mudar, só o
+   adapter em `apps/affiliate-bot` precisa ser trocado.
+2. **A sessão expira.** O bot passa a responder `AUTH_REQUIRED` e nenhum link novo é gerado até
+   alguém reautenticar.
+3. **MFA, captcha ou confirmação de dispositivo exigem o operador.** Não tentamos contornar.
+4. **A integração pode quebrar silenciosamente.** Por isso o fail-closed: se algo sair do
+   esperado, o Garimpo deixa de publicar aquele produto em vez de publicar link ruim.
+5. **Automatizar endpoints internos pode conflitar com os termos de uso do Mercado Livre.** A
+   conta é do operador e os links são dele, mas essa avaliação é dele também.
+
+## OAuth do Mercado Livre
+
+`client_credentials` **não basta**. Verificado contra a API real em 29/08/2026:
+
+| Recurso | `client_credentials` |
+| ------- | -------------------- |
+| `/categories/*` | ✅ funciona |
+| `/items/:id` | ❌ 403 `PA_UNAUTHORIZED_RESULT_FROM_POLICIES` |
+| `/items/:id/prices` | ❌ 403 |
+| `/highlights/...` | ❌ 403 |
+| `/users/:id` | ❌ 403 |
+| `/sites/MLB`, `/sites/MLB/search`, `/trends` | ❌ 403 |
+
+Ou seja: **Authorization Code é obrigatório** para tudo que o Garimpo realmente usa.
+
+### Autorizar (uma vez)
+
+```bash
+curl http://localhost:3333/auth/mercado-livre/authorize   # devolve a authorizationUrl
+```
+
+Abra a URL, autorize, e o Mercado Livre redireciona para
+`https://api-garimpo.allblue-labs.com/auth/mercado-livre/callback`. O callback valida o `state`
+(uso único, comparação em tempo constante), troca o `code` por tokens e guarda o **refresh
+token**.
+
+`GET /auth/mercado-livre/status` mostra se já está autorizado.
+
+O refresh token é **rotativo**: cada renovação devolve um novo e invalida o anterior, então ele
+não cabe numa environment variable. Fica em `marketplace_credentials`, **cifrado com AES-256-GCM**
+(chave derivada por scrypt de `MELI_TOKEN_SECRET`). Nunca é logado nem devolvido pela API. Se a
+chave mudar, a credencial é tratada como ausente e o sistema pede nova autorização — nunca usa um
+token inválido.
+
+> `MELI_TOKEN_SECRET` é obrigatório para autorizar. Sem ele, `/authorize` responde `422` em vez de
+> guardar o segredo de forma insegura.
 
 ## Opportunity Engine
 
@@ -1412,6 +1784,7 @@ Cada um com `durationMs`, `counts` e `failures`. Sem Prometheus, sem Grafana.
 | `/channels`        | Cadastro + listagem + ativar/desativar + **Testar canal** (Telegram e Facebook); canais WhatsApp aparecem marcados como `manual` |
 | `/offers`          | Cadastro + listagem + avanço de status (`DETECTED → CANDIDATE → APPROVED`) |
 | `/publications`    | Produto, preço, destino (com marca `manual` no WhatsApp), status, data, ID externo, erro e **Tentar novamente** nas `FAILED` |
+| `/affiliate-automation` | Sessão da Central, tag ativa, produtos sem link e **Gerar links que faltam** |
 | `/automation`      | Autopilot ON/OFF **por destino**, estado, última e próxima execução, contadores do ciclo, política por provider e **Executar agora** |
 
 UI deliberadamente mínima: sem gráficos, sem animações, sem biblioteca de componentes. O
@@ -1436,6 +1809,30 @@ real de fetch, timeout, retry, autenticação e parsing.
 Cobre, do PR-01: uniqueness de produto, CRUD de produto, link vinculado a produto (incluindo
 cascade), CRUD de canal (incluindo rejeição de secrets na `configuration`), criação e transição de
 status de oferta, integridade de `Publication`, validações, mass assignment, dashboard e health.
+
+Do PR-09: validação do link (HTTPS, host, tag divergente, `origin_url` de outro produto,
+`long_url` com rastreio aceito) e — o caso mais perigoso — **recusa de URL de produto sem
+rastreio de afiliado**, incluindo a variante com outro host; descoberta de tag; geração e
+persistência com `source=MERCADO_LIVRE_AFFILIATE_WEB`; idempotência sem chamar o provider de
+novo; rotação sem acumular links ativos; link manual não sobrescrito; produto sem permalink;
+`AUTH_REQUIRED` → 409 sem persistir; bot indisponível → 503 **sem fallback para o permalink**;
+retry único em falha transitória e nenhum retry em falha de sessão; lote com falha parcial e
+interrupção precoce quando a sessão cai; proteção por sessão administrativa; e um teste ponta a
+ponta que gera o link, vê a oportunidade sair de `NOT_ELIGIBLE` para `APPROVED` e confirma que a
+mensagem publicada carrega **exatamente** o link gerado, nunca o permalink.
+
+Do PR-08: criação de admin, email duplicado, hash argon2id diferente da senha e com salt por
+usuário, usuário inativo, login com mensagem genérica idêntica para email inexistente e senha
+errada, cookie `HttpOnly`/`SameSite`/`Path` e `Secure` só em produção, rate limiting com
+`Retry-After` e janela que expira, token bruto nunca persistido, sessão válida/inválida/expirada,
+invalidação ao desativar o usuário, sessões independentes, logout idempotente, TTL, limpeza de
+sessões vencidas, `/health` e `/auth/login` públicos, **401 anônimo em todos os endpoints
+administrativos** (incluindo automação, publicação e retry), e as mesmas rotas funcionando com
+sessão.
+
+No painel: separação entre layout raiz e autenticado, logo na tela de login sem distorção,
+ausência de cadastro e recuperação de senha, mensagem genérica, cookie sem `localStorage`, e um
+teste que **falha se alguma Server Action exportada não chamar `requireAdmin()`**.
 
 Do PR-07: renderer do WhatsApp (incluindo ausência de caracteres que o app interpreta como
 formatação e diferença explícita dos outros dois), preview sem efeito colateral, canal sem
@@ -1511,6 +1908,9 @@ Todos disponíveis na raiz do monorepo:
 | `npm run stack:down`       | Derruba a stack                            |
 | `npm run stack:logs`       | Segue os logs da api e do admin            |
 | `npm run stack:ps`         | Estado dos serviços                        |
+| `npm run admin:create`     | Cria um administrador (prompt interativo)  |
+| `npm run affiliate:login`  | Autentica a sessão da Central de Afiliados |
+| `npm run dev:bot`          | affiliate-bot em watch mode                |
 | `npm run db:migrate`       | Aplica migrations em desenvolvimento       |
 
 ## Segurança
@@ -1541,12 +1941,20 @@ O que existe neste PR:
 
 ## Dívidas conhecidas
 
-**Não existe autenticação.** A API e o painel estão completamente abertos. Isso é aceitável
-enquanto tudo roda em `localhost`, mas **é bloqueante para qualquer exposição em rede**.
+**Autenticação existe desde o PR-08.** Painel e API exigem sessão; apenas `/health` e as rotas de
+login/logout são públicas. Ver *Autenticação administrativa*.
 Autenticação de admin precisa entrar em um PR próprio **antes** de o sistema sair da máquina
 local. Não foi construído um IAM neste PR de propósito, para não antecipar complexidade.
 
 Outras dívidas deliberadas:
+
+- **A geração de link depende de um adapter não oficial.** Endpoint interno pode mudar sem aviso;
+  a sessão expira e exige reautenticação humana. Fail-closed contém o estrago (deixa de publicar
+  em vez de publicar link ruim), mas é a parte mais frágil do sistema. Ver *Riscos*.
+- O contexto do browser vive num volume/perfil local. Múltiplas instâncias do bot competiriam
+  pelo mesmo perfil — mesma limitação de instância única já documentada.
+- A atribuição real do clique (comissão) não é verificada pelo Garimpo: a Central consolida com
+  atraso. **ATTRIBUTION PENDING** — validar depois do primeiro clique real.
 
 - **WhatsApp depende de ação humana.** Enquanto a Meta não publicar uma API de Canais, a
   publicação não pode ser automatizada — e não vamos contornar isso por fora. Se a API surgir,
@@ -1611,36 +2019,35 @@ Outras dívidas deliberadas:
 - Não há `DELETE`: registros são desativados (`active=false`). Nenhum caso de uso pediu exclusão.
 - Publicações não têm endpoint de escrita — chega junto com os workers de distribuição.
 
-## Fora do escopo do PR-07
+## Fora do escopo do PR-09
 
 Nada disto foi implementado, e a ausência é intencional:
 
-Instagram · Threads · X · TikTok · site público · extensão de navegador · IA/LLM · geração
-variável de copy · geração de vídeos · machine learning · click tracking · commission tracking ·
-analytics novos · novos marketplaces · **Redis** · **fila** · message broker · Kubernetes ·
-**múltiplas instâncias** · redesign completo · autenticação complexa.
+Shopee · Amazon · AliExpress · novas redes sociais · extensão de navegador · IA/LLM ·
+scraping de preços · geração de vídeos · **bypass de MFA** · **bypass de captcha** ·
+distributed queue · **Redis** · **Kafka** · **múltiplas instâncias** · cadastro público ·
+recuperação de senha · RBAC · multi-tenant · SSO.
 
-E, explicitamente: **nenhuma automação não oficial do WhatsApp** — sem browser automation,
-Puppeteer, Playwright, Selenium, QR code scraping, bibliotecas que emulam o WhatsApp Web, cookies
-de sessão capturados ou automação de conta pessoal.
+E, do PR-07, segue valendo: **nenhuma automação não oficial do WhatsApp**.
 
-O **Opportunity Engine não foi alterado** neste PR — pesos, thresholds, componentes de score e
-override do operador permanecem exatamente como no PR-03. Este PR é distribuição e identidade
-visual, não inteligência.
+**Nenhuma integração foi alterada** neste PR — Mercado Livre, Telegram, Facebook, WhatsApp,
+Opportunity Engine e AutomationOrchestrator seguem idênticos, exceto por passarem a exigir sessão
+nos endpoints HTTP. O `AutomationScheduler` continua chamando o orquestrador **diretamente**: ele
+é execução interna e não cria sessão nem passa por HTTP — autenticação protege fronteiras
+externas, não chamadas internas.
 
 `AffiliateLink` continua **manual por decisão de produto**: descoberta de produto e link de
 afiliado seguem propositalmente separados.
 
-O objetivo deste PR é fechar a distribuição da V1 pelo caminho oficial possível em cada
-plataforma:
+O objetivo deste PR é provar que o Garimpo descobre um produto real, gera sozinho o link de
+afiliado e publica esse link — sem intervenção humana por produto:
 
 ```text
-Opportunity APPROVED
-        ↓
-  ┌─────────────── automático ───────────────┐   ┌── semiassistido ──┐
-  │  Telegram [PR-04]    Facebook [PR-06]    │   │  WhatsApp [PR-07] │
-  │  ChannelPublisher → API oficial          │   │  preview → operador│
-  └──────────────────────────────────────────┘   └───────────────────┘
-                        ↓
-        Publication (idempotente por offer + canal)
+Mercado Livre API (oficial)
+      ↓
+Product ──► affiliate-bot (NÃO oficial) ──► AffiliateLink
+      ↓                                          │
+Opportunity Engine ◄───────────────────────────┘
+      ↓                    sem link → NOT_ELIGIBLE → não publica
+Telegram / Facebook / WhatsApp
 ```

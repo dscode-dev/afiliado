@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { createTestHarness } from './app-harness';
+import { authed, createTestHarness } from './app-harness';
 
 describe('GET /health', () => {
   let app: INestApplication;
@@ -14,7 +13,7 @@ describe('GET /health', () => {
   });
 
   it('reporta aplicacao e banco saudaveis', async () => {
-    const response = await request(app.getHttpServer()).get('/health').expect(200);
+    const response = await authed(app).get('/health').expect(200);
 
     expect(response.body).toMatchObject({
       status: 'ok',

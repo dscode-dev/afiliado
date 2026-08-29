@@ -91,6 +91,8 @@ export interface HighlightsResult {
   data: Highlight[];
 }
 
+export type AffiliateLinkSource = 'MANUAL' | 'MERCADO_LIVRE_AFFILIATE_WEB';
+
 export interface AffiliateLink {
   id: string;
   productId: string;
@@ -99,6 +101,10 @@ export interface AffiliateLink {
   label: string | null;
   sourceLabel: string | null;
   channelTag: string | null;
+  source: AffiliateLinkSource;
+  tag: string | null;
+  originUrl: string | null;
+  generatedAt: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -343,4 +349,19 @@ export interface ManualPreview {
 export interface ManualPublicationResult {
   publication: Publication;
   provider: ChannelType;
+}
+
+export interface AffiliateBotStatus {
+  status: 'READY' | 'AUTH_REQUIRED' | 'UNAVAILABLE';
+  tag: string | null;
+  detail?: string;
+}
+
+export interface AffiliateGenerationReport {
+  total: number;
+  generated: number;
+  unchanged: number;
+  failed: number;
+  authRequired: number;
+  failures: { productId: string; reason: string }[];
 }

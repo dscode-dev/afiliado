@@ -1,12 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import {
-  createTestHarness,
-  resetDatabase,
-  useFakeMarketplace,
-  useFakeTelegram,
-} from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace, useFakeTelegram } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { AutomationOrchestrator } from '../src/modules/automation/automation.orchestrator';
 import { AutomationScheduler } from '../src/modules/automation/automation.scheduler';
@@ -140,9 +134,16 @@ describe('Automation loop', () => {
 
   describe('execucao manual', () => {
     it('roda o ciclo completo e devolve o resumo', async () => {
-      const response = await request(app.getHttpServer()).post('/automation/run').expect(200);
+      const response = await authed(app).post('/automation/run').expect(200);
 
-      expect(response.body.phases).toEqual(['productRefresh', 'evaluation', 'distribution']);
+      // A geracao de link entra ANTES da avaliacao: sem link, a oportunidade
+      // seria NOT_ELIGIBLE e nunca chegaria a distribuicao.
+      expect(response.body.phases).toEqual([
+        'productRefresh',
+        'affiliateLinks',
+        'evaluation',
+        'distribution',
+      ]);
       expect(response.body.productRefresh).not.toBeNull();
       expect(response.body.evaluation).not.toBeNull();
       expect(response.body.distribution).not.toBeNull();
@@ -167,7 +168,7 @@ describe('Automation loop', () => {
       expect(release).not.toBeNull();
 
       try {
-        const rejected = await request(app.getHttpServer()).post('/automation/run').expect(409);
+        const rejected = await authed(app).post('/automation/run').expect(409);
 
         expect(rejected.body.message).toContain('em execucao');
         expect(state.running).toBe(true);
@@ -177,7 +178,7 @@ describe('Automation loop', () => {
       }
 
       // Liberada a trava, o ciclo volta a rodar normalmente.
-      await request(app.getHttpServer()).post('/automation/run').expect(200);
+      await authed(app).post('/automation/run').expect(200);
       expect(state.running).toBe(false);
     });
 
@@ -206,7 +207,7 @@ describe('Automation loop', () => {
         await seedChannel();
         telegram.reset();
 
-        const response = await request(off.app.getHttpServer())
+        const response = await authed(off.app)
           .post('/automation/run')
           .expect(200);
 
@@ -375,10 +376,10 @@ describe('Automation loop', () => {
       await seedApproved();
       await seedChannel();
 
-      await request(app.getHttpServer()).post('/automation/run').expect(200);
+      await authed(app).post('/automation/run').expect(200);
       telegram.reset();
 
-      const second = await request(app.getHttpServer()).post('/automation/run').expect(200);
+      const second = await authed(app).post('/automation/run').expect(200);
 
       expect(second.body.distribution.published).toBe(0);
       expect(telegram.calls).toHaveLength(0);
@@ -414,7 +415,7 @@ describe('Automation loop', () => {
       // Sem credenciais validas o Mercado Livre falha; o ciclo deve continuar.
       meli.failOn('/items', { status: 500 });
 
-      const response = await request(app.getHttpServer()).post('/automation/run').expect(200);
+      const response = await authed(app).post('/automation/run').expect(200);
 
       expect(response.body.evaluation).not.toBeNull();
       expect(response.body.distribution).not.toBeNull();
@@ -427,7 +428,7 @@ describe('Automation loop', () => {
         .mockRejectedValue(new Error('falha simulada de leitura'));
 
       try {
-        const response = await request(app.getHttpServer()).post('/automation/run').expect(200);
+        const response = await authed(app).post('/automation/run').expect(200);
 
         expect(response.body.phaseFailures).toEqual([
           expect.objectContaining({ phase: 'distribution' }),
@@ -458,7 +459,7 @@ describe('Automation loop', () => {
       meli.highlights.set(CATEGORY, [{ id: itemId, position: 1, type: 'ITEM' }]);
 
       // Importa pelo fluxo real e cadastra o link obrigatorio.
-      const imported = await request(app.getHttpServer())
+      const imported = await authed(app)
         .post('/products/import')
         .send({ marketplaceItemId: itemId })
         .expect(201);
@@ -471,7 +472,7 @@ describe('Automation loop', () => {
       await seedChannel('Canal E2E');
       telegram.reset();
 
-      const summary = await request(app.getHttpServer()).post('/automation/run').expect(200);
+      const summary = await authed(app).post('/automation/run').expect(200);
 
       // O engine avaliou de verdade e aprovou.
       expect(summary.body.evaluation.approved).toBe(1);
@@ -497,9 +498,9 @@ describe('Automation loop', () => {
 
   describe('GET /automation/status', () => {
     it('reporta estado, limites e ultima execucao', async () => {
-      await request(app.getHttpServer()).post('/automation/run').expect(200);
+      await authed(app).post('/automation/run').expect(200);
 
-      const response = await request(app.getHttpServer()).get('/automation/status').expect(200);
+      const response = await authed(app).get('/automation/status').expect(200);
 
       expect(response.body).toMatchObject({
         autopilotEnabled: true,
@@ -536,7 +537,7 @@ describe('Automation loop', () => {
     it('reporta a janela de horario fechada', async () => {
       clock.set(new Date('2026-06-15T06:00:00Z'));
 
-      const response = await request(app.getHttpServer()).get('/automation/status').expect(200);
+      const response = await authed(app).get('/automation/status').expect(200);
 
       expect(response.body.limits.withinPublishWindow).toBe(false);
     });

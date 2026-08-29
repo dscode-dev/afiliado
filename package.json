@@ -5,13 +5,14 @@
   "description": "Automacao de ofertas afiliadas do Mercado Livre - monorepo",
   "workspaces": [
     "apps/api",
-    "apps/admin"
+    "apps/admin",
+    "apps/affiliate-bot"
   ],
   "scripts": {
     "dev": "concurrently -n api,admin -c blue,magenta \"npm run dev:api\" \"npm run dev:admin\"",
     "dev:api": "npm run dev -w @afiliado/api",
     "dev:admin": "npm run dev -w @afiliado/admin",
-    "build": "npm run build -w @afiliado/api && npm run build -w @afiliado/admin",
+    "build": "npm run build -w @afiliado/api && npm run build -w @afiliado/admin && npm run build -w @afiliado/affiliate-bot",
     "test": "npm run test -w @afiliado/api && npm run test -w @afiliado/admin",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -24,7 +25,10 @@
     "stack:up": "docker compose up -d --build",
     "stack:down": "docker compose down",
     "stack:logs": "docker compose logs -f api admin",
-    "stack:ps": "docker compose ps"
+    "stack:ps": "docker compose ps",
+    "admin:create": "npm run admin:create -w @afiliado/api",
+    "dev:bot": "npm run dev -w @afiliado/affiliate-bot",
+    "affiliate:login": "npm run login -w @afiliado/affiliate-bot"
   },
   "engines": {
     "node": ">=20"

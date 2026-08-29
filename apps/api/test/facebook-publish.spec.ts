@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeFacebook } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeFacebook } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { FacebookFakeServer } from './facebook-fake-server';
 
@@ -102,7 +101,7 @@ describe('Publicacao no Facebook', () => {
   }
 
   const publish = (offerId: string, channelId: string) =>
-    request(app.getHttpServer()).post(`/offers/${offerId}/publish`).send({ channelId });
+    authed(app).post(`/offers/${offerId}/publish`).send({ channelId });
 
   describe('caminho feliz', () => {
     it('publica com imagem via /photos e persiste o post_id', async () => {
@@ -376,7 +375,7 @@ describe('Publicacao no Facebook', () => {
       facebook.reset();
       facebook.pages.set(PAGE_ID, { id: PAGE_ID, name: 'Achados Tech' });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/publications/${failed.id}/retry`)
         .expect(200);
 
@@ -391,7 +390,7 @@ describe('Publicacao no Facebook', () => {
     it('valida a Page com GET, sem criar post', async () => {
       const { channel } = await seed();
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/channels/${channel.id}/test`)
         .expect(200);
 
@@ -404,7 +403,7 @@ describe('Publicacao no Facebook', () => {
     it('reporta Page que o token nao enxerga', async () => {
       const { channel } = await seed({ externalIdentifier: '999' });
 
-      const response = await request(app.getHttpServer())
+      const response = await authed(app)
         .post(`/channels/${channel.id}/test`)
         .expect(422);
 

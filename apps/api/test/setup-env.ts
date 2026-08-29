@@ -46,3 +46,10 @@ process.env.META_APP_SECRET = 'test-app-secret';
 process.env.META_PAGE_ACCESS_TOKEN = 'EAA-TEST-PAGE-TOKEN-NAO-REAL';
 process.env.META_TIMEOUT_MS = '500';
 process.env.FACEBOOK_AUTO_PUBLISH_ENABLED = 'false';
+
+// O affiliate-bot e sempre falso na suite. Aponta para uma porta morta por
+// padrao, para que qualquer teste que esqueca de subir o fake falhe alto.
+process.env.AFFILIATE_BOT_URL = 'http://127.0.0.1:1';
+process.env.AFFILIATE_BOT_TIMEOUT_MS = '2000';
+process.env.AFFILIATE_GENERATION_CONCURRENCY = '3';
+process.env.MELI_TOKEN_SECRET = 'segredo-de-teste-para-cifrar-credencial';

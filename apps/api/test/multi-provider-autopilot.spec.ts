@@ -1,13 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import {
-  createTestHarness,
-  resetDatabase,
-  useFakeFacebook,
-  useFakeMarketplace,
-  useFakeTelegram,
-} from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeFacebook, useFakeMarketplace, useFakeTelegram } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { AutomationOrchestrator } from '../src/modules/automation/automation.orchestrator';
 import { FixedClock } from '../src/modules/automation/clock';
@@ -175,7 +168,7 @@ describe('Autopilot com Telegram e Facebook', () => {
     await seedFacebook();
 
     // Telegram ja publicou antes do ciclo.
-    await request(app.getHttpServer())
+    await authed(app)
       .post(`/offers/${offer.id}/publish`)
       .send({ channelId: telegramChannel.id })
       .expect(200);

@@ -1,7 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import request from 'supertest';
-import { createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
+import { authed, createTestHarness, resetDatabase, useFakeMarketplace } from './app-harness';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { MeliFakeServer } from './meli-fake-server';
 
@@ -67,7 +66,7 @@ describe('GET /opportunities', () => {
       });
     }
 
-    await request(app.getHttpServer()).post(`/products/${product.id}/evaluate`).expect(200);
+    await authed(app).post(`/products/${product.id}/evaluate`).expect(200);
 
     return product.id;
   }
@@ -75,7 +74,7 @@ describe('GET /opportunities', () => {
   it('devolve o estado operacional de cada oportunidade', async () => {
     const productId = await seed({});
 
-    const response = await request(app.getHttpServer()).get('/opportunities').expect(200);
+    const response = await authed(app).get('/opportunities').expect(200);
 
     expect(response.body.total).toBe(1);
     expect(response.body.data[0]).toMatchObject({
@@ -94,7 +93,7 @@ describe('GET /opportunities', () => {
   it('sinaliza produtos que precisam de link afiliado', async () => {
     await seed({ withLink: false });
 
-    const response = await request(app.getHttpServer())
+    const response = await authed(app)
       .get('/opportunities?status=NOT_ELIGIBLE')
       .expect(200);
 
@@ -113,18 +112,18 @@ describe('GET /opportunities', () => {
     await seed({ category: 'Eletronicos' });
     await seed({ category: 'Casa', highlightPosition: null });
 
-    const approved = await request(app.getHttpServer())
+    const approved = await authed(app)
       .get('/opportunities?status=APPROVED')
       .expect(200);
     expect(approved.body.total).toBe(1);
 
-    const byCategory = await request(app.getHttpServer())
+    const byCategory = await authed(app)
       .get('/opportunities?category=casa')
       .expect(200);
     expect(byCategory.body.total).toBe(1);
     expect(byCategory.body.data[0].category).toBe('Casa');
 
-    const byScore = await request(app.getHttpServer())
+    const byScore = await authed(app)
       .get('/opportunities?minScore=85')
       .expect(200);
     expect(byScore.body.total).toBe(1);
@@ -135,27 +134,27 @@ describe('GET /opportunities', () => {
     await seed({ highlightPosition: null });
     await seed({});
 
-    const response = await request(app.getHttpServer()).get('/opportunities').expect(200);
+    const response = await authed(app).get('/opportunities').expect(200);
 
     const scores = response.body.data.map((row: { score: number }) => row.score);
     expect(scores).toEqual([...scores].sort((a: number, b: number) => b - a));
   });
 
   it('valida os filtros', async () => {
-    await request(app.getHttpServer()).get('/opportunities?status=TALVEZ').expect(400);
-    await request(app.getHttpServer()).get('/opportunities?minScore=101').expect(400);
-    await request(app.getHttpServer()).get('/opportunities?minScore=abc').expect(400);
+    await authed(app).get('/opportunities?status=TALVEZ').expect(400);
+    await authed(app).get('/opportunities?minScore=101').expect(400);
+    await authed(app).get('/opportunities?minScore=abc').expect(400);
   });
 
   it('mostra a decisao humana ao lado da recomendacao do engine', async () => {
     const productId = await seed({});
 
-    await request(app.getHttpServer())
+    await authed(app)
       .post(`/opportunities/${productId}/decision`)
       .send({ decision: 'REJECTED', note: 'Margem baixa' })
       .expect(200);
 
-    const response = await request(app.getHttpServer()).get('/opportunities').expect(200);
+    const response = await authed(app).get('/opportunities').expect(200);
 
     expect(response.body.data[0]).toMatchObject({
       status: 'APPROVED',
@@ -166,7 +165,7 @@ describe('GET /opportunities', () => {
   });
 
   it('devolve lista vazia quando nada foi avaliado', async () => {
-    const response = await request(app.getHttpServer()).get('/opportunities').expect(200);
+    const response = await authed(app).get('/opportunities').expect(200);
 
     expect(response.body).toMatchObject({ total: 0, data: [] });
   });
