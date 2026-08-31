@@ -97,7 +97,28 @@ async function main(): Promise<void> {
   process.exitCode = 1;
 }
 
-main().catch((error) => {
-  process.stderr.write(`Falha ao abrir a sessao: ${error instanceof Error ? error.message : ''}\n`);
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  // Erro mais provavel numa maquina recem-configurada: o Playwright esta
+  // instalado, mas o binario do Chromium ainda nao foi baixado.
+  if (/Executable doesn't exist|playwright install/i.test(message)) {
+    process.stderr.write(
+      [
+        '',
+        'O browser do Playwright ainda nao foi baixado nesta maquina.',
+        '',
+        'Rode uma vez, na raiz do projeto:',
+        '',
+        '    npx playwright install chromium',
+        '',
+        'Depois repita `npm run affiliate:login`.',
+        '',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+
+  process.stderr.write(`Falha ao abrir a sessao: ${message}\n`);
   process.exit(1);
 });

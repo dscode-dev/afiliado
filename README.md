@@ -837,8 +837,13 @@ O bot usa um **contexto persistente do Playwright**. A sessão é do operador, a
 vez**:
 
 ```bash
-npm run affiliate:login     # abre o browser; você entra no Mercado Livre
+npx playwright install chromium   # uma vez por máquina
+npm run affiliate:login           # abre o browser; você entra no Mercado Livre
 ```
+
+Funciona em Windows, macOS e Linux: o comando resolve o CLI do `tsx` pelo próprio pacote e o
+executa com o Node atual, sem depender de `node_modules/.bin` (no Windows o npm cria ali um
+`tsx` sem extensão, que só o Git Bash consegue executar).
 
 > ⚠️ **Rode na máquina do operador, nunca dentro do container.** Abrir uma janela de browser
 > exige sessão gráfica — o container não tem. Por isso o perfil é um **bind mount**
