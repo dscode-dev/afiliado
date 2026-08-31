@@ -1,4 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { chromium } from 'playwright';
 import { config } from './config';
 
@@ -78,11 +79,62 @@ async function main(): Promise<void> {
       .catch(() => undefined);
   }, 4000);
 
-  await new Promise<void>((resolve) => context.on('close', () => resolve()));
+  // Exporta ANTES de fechar: depois o contexto ja nao responde.
+  let exported = false;
+  const exportSession = async (): Promise<void> => {
+    if (exported) return;
+    try {
+      mkdirSync(dirname(config.sessionStatePath), { recursive: true });
+      await context.storageState({ path: config.sessionStatePath });
+      // Contem cookies de sessao em texto claro: so o dono le.
+      chmodSync(config.sessionStatePath, 0o600);
+      exported = true;
+    } catch {
+      // Reportado abaixo, junto com o resto do resultado.
+    }
+  };
+
+  context.on('close', () => undefined);
+  await new Promise<void>((resolve) => {
+    const done = (): void => resolve();
+    // Exporta periodicamente enquanto a janela vive, para nao depender de
+    // conseguir falar com um contexto que ja esta fechando.
+    const keep = setInterval(() => void exportSession(), 5000);
+    context.on('close', () => {
+      clearInterval(keep);
+      done();
+    });
+  });
   clearInterval(poll);
 
-  if (confirmed) {
-    process.stdout.write('\nPronto. Sessao salva e validada.\n');
+  if (confirmed && exported) {
+    process.stdout.write(
+      [
+        '',
+        'Pronto. Sessao salva e validada.',
+        `Sessao portatil: ${config.sessionStatePath}`,
+        '',
+        'E este arquivo que o container usa: o perfil do Chromium nao atravessa',
+        'sistemas operacionais (os cookies sao cifrados com uma chave do SO).',
+        '',
+      ].join('\n'),
+    );
+    return;
+  }
+
+  if (confirmed && !exported) {
+    process.stderr.write(
+      [
+        '',
+        'A sessao foi reconhecida, mas nao consegui exportar o arquivo em:',
+        `  ${config.sessionStatePath}`,
+        '',
+        'Sem ele o container continuara pedindo autenticacao. Verifique a',
+        'permissao de escrita nessa pasta e rode o comando novamente.',
+        '',
+      ].join('\n'),
+    );
+    process.exitCode = 1;
     return;
   }
 

@@ -35,8 +35,9 @@ RUN npx --yes playwright@1.62.1 install --with-deps chromium \
 # login roda na maquina do operador, e nao dentro do container.
 COPY --from=build /app/apps/affiliate-bot/scripts ./apps/affiliate-bot/scripts
 
-# O perfil do browser NAO entra na imagem: e montado como volume privado.
-ENV AFFILIATE_BROWSER_PROFILE_PATH=/profile
+# O estado (perfil + sessao exportada) NAO entra na imagem: vem por bind mount.
+ENV AFFILIATE_BROWSER_PROFILE_PATH=/garimpo/affiliate-profile
+ENV AFFILIATE_SESSION_STATE_PATH=/garimpo/affiliate-session.json
 
 WORKDIR /app/apps/affiliate-bot
 EXPOSE 3400

@@ -105,6 +105,8 @@ Vá em **Automação de afiliados** e olhe o quadro **Sessão da Central**:
   uma vez. Isso é feito no servidor, com o comando que aparece na própria tela. Peça a
   quem cuida da instalação.
 
+Se você fez o login, ele reconheceu sua tag, e mesmo assim o painel continua pedindo autenticação: o login precisa ter sido feito **na mesma máquina que roda o Garimpo**, e o arquivo `.garimpo/affiliate-session.json` precisa existir lá. Avise quem cuida da instalação.
+
 > Essa autenticação é feita **uma vez** e vale para milhares de links. Você **nunca**
 > precisa criar link produto por produto.
 

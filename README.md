@@ -845,6 +845,22 @@ Funciona em Windows, macOS e Linux: o comando resolve o CLI do `tsx` pelo própr
 executa com o Node atual, sem depender de `node_modules/.bin` (no Windows o npm cria ali um
 `tsx` sem extensão, que só o Git Bash consegue executar).
 
+Ao fechar a janela, o login grava **`.garimpo/affiliate-session.json`** — a sessão em JSON
+portátil (`storageState` do Playwright). É esse arquivo que o container usa.
+
+> ⚠️ **O perfil do Chromium não atravessa sistemas operacionais.** Os cookies são cifrados com
+> uma chave do SO (DPAPI no Windows, Keychain no macOS, keyring/chave fixa no Linux). Um perfil
+> criado no Windows e aberto pelo Chromium Linux do container aparece com **zero cookies** — e o
+> Chromium ainda descarta os registros que não consegue decifrar, corrompendo o perfil original.
+> Por isso a sessão trafega como JSON, e não como perfil.
+>
+> Sintoma quando isso é ignorado: o login funciona e reconhece a tag, mas o painel continua em
+> *Autenticação necessária* e nenhum link é gerado.
+
+O JSON contém cookies de sessão em texto claro. Ele é criado com permissão `600`, mora em
+`.garimpo/` (no `.gitignore`) e **nunca** deve ser commitado, copiado para outra máquina ou
+incluído em backup compartilhado. Para revogar, apague o arquivo e refaça o login.
+
 > ⚠️ **Rode na máquina do operador, nunca dentro do container.** Abrir uma janela de browser
 > exige sessão gráfica — o container não tem. Por isso o perfil é um **bind mount**
 > (`AFFILIATE_BROWSER_PROFILE_PATH`, padrão `./.garimpo/affiliate-profile`): você autentica no

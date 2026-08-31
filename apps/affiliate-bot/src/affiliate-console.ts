@@ -1,4 +1,5 @@
-import { BrowserContext, chromium } from 'playwright';
+import { existsSync } from 'node:fs';
+import { Browser, BrowserContext, chromium } from 'playwright';
 import { config } from './config';
 import { AffiliateBotError, GeneratedLink } from './types';
 
@@ -22,21 +23,43 @@ import { AffiliateBotError, GeneratedLink } from './types';
  */
 export class AffiliateConsole {
   private context: BrowserContext | null = null;
+  private browser: Browser | null = null;
   private cachedTag: string | null = null;
 
+  /**
+   * Abre o contexto que carrega a sessao do operador.
+   *
+   * Prefere o JSON exportado pelo login (`affiliate-session.json`) porque ele
+   * atravessa sistemas operacionais; o perfil do Chromium nao atravessa. Ver
+   * `defaultSessionStatePath()` em config.ts.
+   *
+   * Sem o JSON, cai no perfil persistente - o caminho valido quando login e bot
+   * rodam no mesmo sistema (bot fora do Docker).
+   */
   async open(): Promise<void> {
     if (this.context) return;
 
-    this.context = await chromium.launchPersistentContext(config.profilePath, {
-      headless: config.headless,
-      viewport: { width: 1280, height: 800 },
-    });
+    if (existsSync(config.sessionStatePath)) {
+      this.browser = await chromium.launch({ headless: config.headless });
+      this.context = await this.browser.newContext({
+        storageState: config.sessionStatePath,
+        viewport: { width: 1280, height: 800 },
+      });
+    } else {
+      this.context = await chromium.launchPersistentContext(config.profilePath, {
+        headless: config.headless,
+        viewport: { width: 1280, height: 800 },
+      });
+    }
+
     this.context.setDefaultTimeout(config.timeoutMs);
   }
 
   async close(): Promise<void> {
     await this.context?.close().catch(() => undefined);
+    await this.browser?.close().catch(() => undefined);
     this.context = null;
+    this.browser = null;
     this.cachedTag = null;
   }
 

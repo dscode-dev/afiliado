@@ -10,18 +10,37 @@ function repoRoot(): string {
   return resolve(__dirname, '..', '..', '..');
 }
 
+/** Diretorio de estado, montado no container pelo compose. */
+function stateDir(): string {
+  if (existsSync('/.dockerenv')) return '/garimpo';
+
+  return join(repoRoot(), '.garimpo');
+}
+
 /**
- * Perfil padrao do browser.
+ * Perfil do browser, usado quando login e bot rodam no MESMO sistema.
  *
- * Fica DENTRO do repositorio (e no .gitignore) de proposito: assim o operador
- * roda o login na propria maquina e o container le exatamente o mesmo diretorio
- * por bind mount. Um volume nomeado do Docker seria invisivel para o login.
+ * Fica dentro do repositorio (e no .gitignore) de proposito.
  */
 function defaultProfilePath(): string {
-  // Dentro do container o compose monta o perfil aqui.
-  if (existsSync('/.dockerenv')) return '/profile';
+  return join(stateDir(), 'affiliate-profile');
+}
 
-  return join(repoRoot(), '.garimpo', 'affiliate-profile');
+/**
+ * Sessao exportada em JSON portatil (`storageState` do Playwright).
+ *
+ * Existe porque o PERFIL do Chromium NAO atravessa sistemas operacionais: os
+ * cookies sao cifrados com uma chave do SO (DPAPI no Windows, Keychain no
+ * macOS, keyring/chave fixa no Linux). Um perfil criado no Windows e aberto
+ * pelo Chromium Linux do container aparece com ZERO cookies -- e pior, o
+ * Chromium descarta os registros que nao consegue decifrar, corrompendo o
+ * perfil original.
+ *
+ * Verificado: perfil bruto host->container = 0 cookies; este JSON = sessao
+ * intacta. Por isso o login exporta, e o container importa.
+ */
+function defaultSessionStatePath(): string {
+  return join(stateDir(), 'affiliate-session.json');
 }
 
 /**
@@ -33,6 +52,8 @@ function defaultProfilePath(): string {
 export const config = {
   port: Number(process.env.AFFILIATE_BOT_PORT ?? 3400),
   profilePath: process.env.AFFILIATE_BROWSER_PROFILE_PATH || defaultProfilePath(),
+  /** Sessao portatil entre sistemas; tem precedencia sobre o perfil. */
+  sessionStatePath: process.env.AFFILIATE_SESSION_STATE_PATH || defaultSessionStatePath(),
   headless: (process.env.AFFILIATE_BOT_HEADLESS ?? 'true').toLowerCase() !== 'false',
   timeoutMs: Number(process.env.AFFILIATE_BOT_TIMEOUT_MS ?? 30000),
   /** Origem da Central de Afiliados; os requests sao same-origin a partir dela. */

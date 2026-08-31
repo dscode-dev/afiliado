@@ -155,11 +155,14 @@ services:
       AFFILIATE_BOT_TIMEOUT_MS: ${AFFILIATE_BOT_TIMEOUT_MS:-45000}
       AFFILIATE_TAG: ${AFFILIATE_TAG:-}
     volumes:
-      # Bind mount, nao volume nomeado: o login roda na MAQUINA do operador
-      # (precisa de janela de browser) e o container precisa ler exatamente o
-      # mesmo perfil. Um volume nomeado seria invisivel para o login.
-      # Contem sessao real da conta - ja esta no .gitignore.
-      - ${AFFILIATE_BROWSER_PROFILE_PATH:-./.garimpo/affiliate-profile}:/profile
+      # Bind mount do diretorio de estado inteiro.
+      #
+      # O login roda na MAQUINA do operador (precisa de janela de browser) e
+      # grava aqui `affiliate-session.json` -- a sessao em JSON portatil. O
+      # perfil bruto do Chromium NAO serve: seus cookies sao cifrados com uma
+      # chave do sistema operacional, entao um perfil feito no Windows ou macOS
+      # chega vazio no Chromium Linux deste container.
+      - ${GARIMPO_STATE_PATH:-./.garimpo}:/garimpo
     ports:
       - "127.0.0.1:3400:3400"
 
