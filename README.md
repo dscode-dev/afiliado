@@ -4,6 +4,10 @@
 
 Sistema interno que garimpa ofertas do Mercado Livre e as distribui em canais públicos.
 
+> 📖 **Vai operar o painel?** Comece pelo
+> **[Manual do Operador](docs/MANUAL-DO-OPERADOR.md)** — passo a passo, em português, sem
+> jargão técnico. O restante deste README é documentação técnica.
+
 O produto monitora produtos e ofertas, registra links de afiliado, avalia oportunidades e
 distribui as melhores em canais públicos (Telegram, Facebook, WhatsApp). O cliente final é
 sempre levado **diretamente ao Mercado Livre** — não existe checkout, pagamento, estoque,
@@ -204,6 +208,10 @@ corrida entre schema e aplicação.
 
 O admin fala com a API pela rede interna do compose (`http://api:3333`). Todas as chamadas são
 server-side (Server Components e Server Actions), então nada disso é resolvido pelo browser.
+
+> **Porta 5432 já ocupada?** Se outro projeto seu tem um PostgreSQL rodando, ajuste
+> `POSTGRES_PORT` no `.env` (ex.: `5433`) e atualize `DATABASE_URL` e `TEST_DATABASE_URL` para a
+> mesma porta. O erro aparece como `Bind for 127.0.0.1:5432 failed: port is already allocated`.
 
 > **Todas as portas são publicadas apenas em `127.0.0.1`.** O painel e a API já exigem
 > autenticação (ver *Autenticação administrativa*), mas expor na rede continua sendo uma decisão
@@ -803,6 +811,12 @@ vez**:
 ```bash
 npm run affiliate:login     # abre o browser; você entra no Mercado Livre
 ```
+
+> ⚠️ **Rode na máquina do operador, nunca dentro do container.** Abrir uma janela de browser
+> exige sessão gráfica — o container não tem. Por isso o perfil é um **bind mount**
+> (`AFFILIATE_BROWSER_PROFILE_PATH`, padrão `./.garimpo/affiliate-profile`): você autentica no
+> host e o container lê exatamente a mesma sessão. Rodar o comando dentro do container responde
+> com essa instrução em vez de falhar de forma obscura.
 
 Não há tentativa de burlar MFA, captcha, challenge ou confirmação de dispositivo. Quando a sessão
 cai, o bot responde `AUTH_REQUIRED` e o painel avisa.

@@ -153,8 +153,11 @@ services:
       AFFILIATE_BOT_TIMEOUT_MS: ${AFFILIATE_BOT_TIMEOUT_MS:-45000}
       AFFILIATE_TAG: ${AFFILIATE_TAG:-}
     volumes:
-      # Sessao real da conta: volume privado, nunca a imagem nem o git.
-      - affiliate-profile:/profile
+      # Bind mount, nao volume nomeado: o login roda na MAQUINA do operador
+      # (precisa de janela de browser) e o container precisa ler exatamente o
+      # mesmo perfil. Um volume nomeado seria invisivel para o login.
+      # Contem sessao real da conta - ja esta no .gitignore.
+      - ${AFFILIATE_BROWSER_PROFILE_PATH:-./.garimpo/affiliate-profile}:/profile
     ports:
       - "127.0.0.1:3400:3400"
 
@@ -179,5 +182,3 @@ services:
 
 volumes:
   afiliado-pgdata:
-  # Perfil do browser do affiliate-bot. Contem sessao real: mantenha privado.
-  affiliate-profile:

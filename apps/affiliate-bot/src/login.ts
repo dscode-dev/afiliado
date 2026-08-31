@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { config } from './config';
 
@@ -7,10 +8,41 @@ import { config } from './config';
  *
  * Nao ha tentativa de burlar MFA, captcha ou confirmacao de dispositivo: quem
  * autentica e a pessoa. Isso nao e operacao manual por produto - e uma
- * autenticacao eventual de conta.
+ * autenticacao eventual de conta, que cobre milhares de links.
+ *
+ * PRECISA rodar na maquina do operador, nunca dentro do container: abrir uma
+ * janela de browser exige uma sessao grafica.
  */
 async function main(): Promise<void> {
-  process.stdout.write('Abrindo a Central de Afiliados para autenticacao...\n');
+  if (config.inContainer) {
+    process.stderr.write(
+      [
+        'Este comando abre uma janela de browser e NAO funciona dentro do container.',
+        '',
+        'Rode na sua maquina, na raiz do projeto:',
+        '',
+        '    npm run affiliate:login',
+        '',
+        'O container le o mesmo perfil por bind mount, entao a sessao vale para os dois.',
+        '',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+
+  mkdirSync(config.profilePath, { recursive: true });
+
+  process.stdout.write(
+    [
+      'Abrindo a Central de Afiliados do Mercado Livre...',
+      `Perfil da sessao: ${config.profilePath}`,
+      '',
+      '1. Faca login na janela que abriu (inclusive MFA, se pedir).',
+      '2. Espere a Central carregar.',
+      '3. FECHE a janela do browser para salvar a sessao.',
+      '',
+    ].join('\n'),
+  );
 
   const context = await chromium.launchPersistentContext(config.profilePath, {
     headless: false,
@@ -18,15 +50,51 @@ async function main(): Promise<void> {
   });
 
   const page = context.pages()[0] ?? (await context.newPage());
-  await page.goto(config.consoleUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(config.consoleUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
 
-  process.stdout.write(
-    'Faca login e deixe a Central aberta. Feche a janela quando terminar.\n' +
-      'A sessao fica salva no perfil configurado em AFFILIATE_BROWSER_PROFILE_PATH.\n',
-  );
+  // Confirma a sessao enquanto a janela ainda esta aberta.
+  let confirmed: string | null = null;
+  const poll = setInterval(() => {
+    void page
+      .evaluate(async () => {
+        const res = await fetch('/affiliate-program/api/v2/stripe/user/tags', {
+          credentials: 'include',
+        });
+        if (!res.ok) return null;
+        const body = (await res.json().catch(() => null)) as {
+          tags?: { tag?: string; in_use?: boolean; status?: string }[];
+        } | null;
+        const tags = body?.tags ?? [];
+        const active = tags.find((t) => t.in_use === true || t.status === 'in_use') ?? tags[0];
+        return active?.tag ?? null;
+      })
+      .then((tag) => {
+        if (tag && !confirmed) {
+          confirmed = tag;
+          process.stdout.write(`Sessao reconhecida. Tag ativa: ${tag}\n`);
+          process.stdout.write('Pode fechar a janela.\n');
+        }
+      })
+      .catch(() => undefined);
+  }, 4000);
 
   await new Promise<void>((resolve) => context.on('close', () => resolve()));
-  process.stdout.write('Sessao salva.\n');
+  clearInterval(poll);
+
+  if (confirmed) {
+    process.stdout.write('\nPronto. Sessao salva e validada.\n');
+    return;
+  }
+
+  process.stderr.write(
+    [
+      '',
+      'A janela fechou, mas a sessao nao foi reconhecida.',
+      'Confira se o login foi concluido e rode o comando novamente.',
+      '',
+    ].join('\n'),
+  );
+  process.exitCode = 1;
 }
 
 main().catch((error) => {
