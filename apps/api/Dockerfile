@@ -14,6 +14,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
+COPY apps/api/scripts apps/api/scripts/
 COPY apps/admin/package.json apps/admin/
 RUN npm ci
 
@@ -44,6 +45,7 @@ CMD ["npx", "prisma", "migrate", "deploy"]
 FROM base AS prod-deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
+COPY apps/api/scripts apps/api/scripts/
 COPY apps/admin/package.json apps/admin/
 RUN npm ci --omit=dev --workspace @afiliado/api --include-workspace-root
 
@@ -57,6 +59,7 @@ COPY --from=prod-deps /app/package.json ./
 # O Prisma Client e gerado no build; precisa ser trazido para o runtime.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/apps/api/package.json ./apps/api/
+COPY --from=build /app/apps/api/scripts ./apps/api/scripts
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 
 WORKDIR /app/apps/api
