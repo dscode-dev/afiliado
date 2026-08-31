@@ -19,12 +19,28 @@ export async function sessionToken(): Promise<string | undefined> {
   return (await cookies()).get(SESSION_COOKIE)?.value;
 }
 
+/**
+ * O cookie deve ou nao exigir HTTPS.
+ *
+ * Amarrar isso a `NODE_ENV` quebra o acesso pela rede local: a imagem roda com
+ * `NODE_ENV=production`, o cookie sai como `Secure`, e o browser recusa
+ * grava-lo em `http://192.168.x.x` -- so `localhost` conta como origem segura
+ * sem TLS. O login "funciona" e volta para a tela de login, sem erro visivel.
+ *
+ * Por isso a decisao e explicita: `SESSION_COOKIE_SECURE=false` para servir por
+ * HTTP na rede interna, mantendo `true` (o padrao em producao) atras de HTTPS.
+ */
+function cookieSecure(): boolean {
+  const declared = process.env.SESSION_COOKIE_SECURE;
+  if (declared !== undefined) return declared.toLowerCase() !== 'false';
+  return process.env.NODE_ENV === 'production';
+}
+
 export async function setSessionCookie(token: string, expiresAt: string): Promise<void> {
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    // Em producao o painel roda atras de HTTPS; em dev, http://localhost.
-    secure: process.env.NODE_ENV === 'production',
+    secure: cookieSecure(),
     path: '/',
     expires: new Date(expiresAt),
   });

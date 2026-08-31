@@ -62,7 +62,7 @@ export class AuthController {
       response.cookie(SESSION_COOKIE, result.token, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.APP_ENV === 'production',
+        secure: cookieSecure(),
         path: '/',
         expires: result.expiresAt,
       });
@@ -118,4 +118,14 @@ function bearerOrCookie(request: Request): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Mesma regra do painel: `SESSION_COOKIE_SECURE` decide, e so cai no ambiente
+ * quando ninguem declarou. Ver `apps/admin/lib/session.ts` para o porque.
+ */
+function cookieSecure(): boolean {
+  const declared = process.env.SESSION_COOKIE_SECURE;
+  if (declared !== undefined) return declared.toLowerCase() !== 'false';
+  return process.env.APP_ENV === 'production';
 }

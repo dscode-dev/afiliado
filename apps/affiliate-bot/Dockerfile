@@ -31,6 +31,10 @@ COPY --from=build /app/apps/affiliate-bot/package.json ./apps/affiliate-bot/
 RUN npx --yes playwright@1.62.1 install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/* /root/.npm
 
+# O guard do `affiliate:login` precisa existir AQUI: e ele que explica que o
+# login roda na maquina do operador, e nao dentro do container.
+COPY --from=build /app/apps/affiliate-bot/scripts ./apps/affiliate-bot/scripts
+
 # O perfil do browser NAO entra na imagem: e montado como volume privado.
 ENV AFFILIATE_BROWSER_PROFILE_PATH=/profile
 

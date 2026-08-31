@@ -28,7 +28,7 @@
     "stack:ps": "docker compose ps",
     "admin:create": "npm run admin:create -w @afiliado/api",
     "dev:bot": "npm run dev -w @afiliado/affiliate-bot",
-    "affiliate:login": "npm run login -w @afiliado/affiliate-bot"
+    "affiliate:login": "npm run affiliate:login -w @afiliado/affiliate-bot"
   },
   "engines": {
     "node": ">=20"

@@ -23,6 +23,16 @@ Em quatro passos:
 ---
 
 ## Entrando no painel
+### Usando de outro computador
+
+Você não precisa estar na máquina onde o Garimpo roda. De qualquer computador na mesma
+rede (mesmo Wi-Fi), abra o navegador e digite o endereço da máquina servidora seguido de
+`:3000` — por exemplo `http://192.168.1.233:3000`.
+
+Se a página abrir mas o login ficar voltando para a tela de entrada sem dar erro, avise
+quem cuida da instalação: falta ajustar uma opção do servidor (`SESSION_COOKIE_SECURE`).
+
+
 
 1. Abra o endereço do Garimpo no navegador.
 2. Digite seu **e-mail** e sua **senha**.

@@ -1,3 +1,7 @@
+const cookieSet = jest.fn();
+jest.mock('next/headers', () => ({ cookies: async () => ({ set: cookieSet }) }));
+
+import { setSessionCookie } from '../lib/session';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Dirent, readdirSync } from 'node:fs';
@@ -57,8 +61,8 @@ describe('Autenticacao do painel', () => {
     expect(session).toContain('httpOnly: true');
     expect(session).toContain("sameSite: 'lax'");
     expect(session).toContain("path: '/'");
-    // Secure apenas em producao, senao nao funcionaria em http://localhost.
-    expect(session).toContain("secure: process.env.NODE_ENV === 'production'");
+    // O valor de `secure` tem teste de comportamento proprio, mais abaixo:
+    // afirmar o texto-fonte aqui quebraria a cada refatoracao da expressao.
     // Nada de armazenamento acessivel ao browser.
     expect(session).not.toMatch(/localStorage|sessionStorage/);
   });
@@ -102,4 +106,51 @@ describe('Autenticacao do painel', () => {
     // `skipAuth` existe so para o proprio login.
     expect(api).toContain('skipAuth');
   });
+});
+
+/**
+ * `secure` decide se o painel e utilizavel pela rede local.
+ *
+ * O browser descarta cookie `Secure` em origem sem TLS que nao seja
+ * `localhost`, e o descarte e silencioso: o login redireciona para o dashboard
+ * e a navegacao seguinte volta para o login, sem erro nenhum.
+ *
+ * Testado pelo comportamento, e nao pelo texto-fonte, para sobreviver a
+ * refatoracoes da expressao.
+ */
+describe('Secure do cookie de sessao', () => {
+  // [SESSION_COOKIE_SECURE, NODE_ENV, secure esperado]
+  const cases: Array<[string | undefined, string, boolean]> = [
+    [undefined, 'production', true],
+    [undefined, 'development', false],
+    ['false', 'production', false], // rede local por HTTP
+    ['true', 'development', true],
+  ];
+
+  it.each(cases)(
+    'SESSION_COOKIE_SECURE=%s + NODE_ENV=%s -> secure=%s',
+    async (flag, nodeEnv, expected) => {
+      const previousFlag = process.env.SESSION_COOKIE_SECURE;
+      const previousNode = process.env.NODE_ENV;
+
+      if (flag === undefined) delete process.env.SESSION_COOKIE_SECURE;
+      else process.env.SESSION_COOKIE_SECURE = flag;
+      Object.defineProperty(process.env, 'NODE_ENV', { value: nodeEnv, configurable: true });
+      cookieSet.mockClear();
+
+      try {
+        await setSessionCookie('token-de-teste', new Date(Date.now() + 3_600_000).toISOString());
+
+        expect(cookieSet).toHaveBeenCalledTimes(1);
+        expect(cookieSet.mock.calls[0][2]).toMatchObject({ secure: expected, httpOnly: true });
+      } finally {
+        if (previousFlag === undefined) delete process.env.SESSION_COOKIE_SECURE;
+        else process.env.SESSION_COOKIE_SECURE = previousFlag;
+        Object.defineProperty(process.env, 'NODE_ENV', {
+          value: previousNode,
+          configurable: true,
+        });
+      }
+    },
+  );
 });

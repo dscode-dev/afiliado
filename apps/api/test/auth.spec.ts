@@ -98,24 +98,37 @@ describe('Autenticacao administrativa', () => {
 
     it('define cookie HttpOnly, SameSite e Path', async () => {
       await createAdmin();
+      // Idem: sem a variavel no caminho, o resultado nao depende do .env de
+      // quem esta rodando a suite.
+      const previousFlag = process.env.SESSION_COOKIE_SECURE;
+      delete process.env.SESSION_COOKIE_SECURE;
 
-      const response = await login(EMAIL, PASSWORD).expect(200);
-      const cookie = (response.headers['set-cookie'] as unknown as string[])[0];
+      try {
+        const response = await login(EMAIL, PASSWORD).expect(200);
+        const cookie = (response.headers['set-cookie'] as unknown as string[])[0];
 
-      expect(cookie).toContain('garimpo_session=');
-      // HttpOnly impede leitura por JavaScript no browser.
-      expect(cookie).toContain('HttpOnly');
-      expect(cookie).toContain('SameSite=Lax');
-      expect(cookie).toContain('Path=/');
-      // Fora de producao nao marcamos Secure, senao o cookie nao funcionaria
-      // em http://localhost.
-      expect(cookie).not.toContain('Secure');
+        expect(cookie).toContain('garimpo_session=');
+        // HttpOnly impede leitura por JavaScript no browser.
+        expect(cookie).toContain('HttpOnly');
+        expect(cookie).toContain('SameSite=Lax');
+        expect(cookie).toContain('Path=/');
+        // Fora de producao nao marcamos Secure, senao o cookie nao funcionaria
+        // em http://localhost.
+        expect(cookie).not.toContain('Secure');
+      } finally {
+        if (previousFlag === undefined) delete process.env.SESSION_COOKIE_SECURE;
+        else process.env.SESSION_COOKIE_SECURE = previousFlag;
+      }
     });
 
     it('marca o cookie como Secure em producao', async () => {
       await createAdmin();
-      const previous = process.env.APP_ENV;
+      const previousEnv = process.env.APP_ENV;
+      // Sem declaracao explicita o ambiente decide - e este teste cobre esse
+      // padrao, entao a variavel precisa sair do caminho.
+      const previousFlag = process.env.SESSION_COOKIE_SECURE;
       process.env.APP_ENV = 'production';
+      delete process.env.SESSION_COOKIE_SECURE;
 
       try {
         const response = await login(EMAIL, PASSWORD).expect(200);
@@ -124,9 +137,44 @@ describe('Autenticacao administrativa', () => {
         expect(cookie).toContain('Secure');
         expect(cookie).toContain('HttpOnly');
       } finally {
-        process.env.APP_ENV = previous;
+        process.env.APP_ENV = previousEnv;
+        if (previousFlag === undefined) delete process.env.SESSION_COOKIE_SECURE;
+        else process.env.SESSION_COOKIE_SECURE = previousFlag;
       }
     });
+
+    // SESSION_COOKIE_SECURE existe para servir o painel por HTTP na rede local:
+    // o browser descarta cookie `Secure` fora de `localhost` sem TLS, e o login
+    // falha em silencio. A declaracao explicita precisa vencer o ambiente nos
+    // DOIS sentidos, senao a producao poderia perder o Secure sem ninguem notar.
+    it.each([
+      ['false', 'production', false],
+      ['true', 'development', true],
+    ])(
+      'SESSION_COOKIE_SECURE=%s vence APP_ENV=%s',
+      async (flag, appEnv, expectSecure) => {
+        await createAdmin();
+        const previousEnv = process.env.APP_ENV;
+        const previousFlag = process.env.SESSION_COOKIE_SECURE;
+        process.env.APP_ENV = appEnv;
+        process.env.SESSION_COOKIE_SECURE = flag;
+
+        try {
+          const response = await login(EMAIL, PASSWORD).expect(200);
+          const cookie = (response.headers['set-cookie'] as unknown as string[])[0];
+
+          if (expectSecure) expect(cookie).toContain('Secure');
+          else expect(cookie).not.toContain('Secure');
+          // O resto das protecoes nao pode ser afetado pela flag.
+          expect(cookie).toContain('HttpOnly');
+          expect(cookie).toContain('SameSite=Lax');
+        } finally {
+          process.env.APP_ENV = previousEnv;
+          if (previousFlag === undefined) delete process.env.SESSION_COOKIE_SECURE;
+          else process.env.SESSION_COOKIE_SECURE = previousFlag;
+        }
+      },
+    );
 
     it('usa a mesma mensagem generica para email inexistente e senha errada', async () => {
       await createAdmin();
@@ -374,3 +422,4 @@ describe('Autenticacao administrativa', () => {
     });
   });
 });
+

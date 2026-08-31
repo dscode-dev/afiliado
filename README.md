@@ -213,9 +213,37 @@ server-side (Server Components e Server Actions), então nada disso é resolvido
 > `POSTGRES_PORT` no `.env` (ex.: `5433`) e atualize `DATABASE_URL` e `TEST_DATABASE_URL` para a
 > mesma porta. O erro aparece como `Bind for 127.0.0.1:5432 failed: port is already allocated`.
 
-> **Todas as portas são publicadas apenas em `127.0.0.1`.** O painel e a API já exigem
-> autenticação (ver *Autenticação administrativa*), mas expor na rede continua sendo uma decisão
-> explícita: sirva por HTTPS e ajuste `TRUST_PROXY` e `CORS_ORIGINS` antes.
+### Acesso pela rede local
+
+O painel (`3000`) e a API (`3333`) são publicados em `${BIND_HOST:-0.0.0.0}`, ou seja,
+alcançáveis por outras máquinas da rede. O Postgres e o `affiliate-bot` ficam em `127.0.0.1`:
+não há motivo para expô-los.
+
+Para operar de outro computador:
+
+```bash
+# no .env da máquina que roda a stack
+BIND_HOST=0.0.0.0
+SESSION_COOKIE_SECURE=false
+```
+
+Depois, acesse `http://IP-DA-MAQUINA:3000` (ex.: `http://192.168.1.233:3000`).
+
+> ⚠️ **`SESSION_COOKIE_SECURE=false` é obrigatório para HTTP na rede local.** O cookie de sessão
+> sai como `Secure` por padrão, e o browser só aceita cookie `Secure` sem TLS quando a origem é
+> `localhost`. Por um IP da rede ele é descartado em silêncio: o login parece funcionar, redireciona
+> para o dashboard e a navegação seguinte volta para a tela de login, sem mensagem de erro.
+> **Volte para `true` assim que houver HTTPS na frente** — sem TLS o cookie trafega em texto claro
+> pela rede.
+
+Só o servidor Next fala com a API: nenhum componente de browser faz requisição direta. Por isso
+não é preciso mexer em `CORS_ORIGINS` para o acesso pela rede local — apenas a porta `3000`
+precisa estar alcançável.
+
+Se houver um proxy reverso na frente, ajuste também `TRUST_PROXY`; sem isso o limite de tentativas
+de login passa a contar todos os acessos como vindos de um IP só.
+
+> **Porta 3000 ocupada?** Ajuste `ADMIN_PORT` no `.env` (o mesmo vale para `API_PORT`).
 
 > **Não escale `api` para mais de uma réplica.** A trava do autopilot é em memória (ver
 > *Autopilot → Premissa: instância única*).

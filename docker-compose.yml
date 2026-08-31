@@ -55,6 +55,8 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-production}
+      # Mesma regra do painel: HTTP na rede local exige `false`.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       API_PORT: 3333
       DATABASE_URL: postgresql://afiliado:afiliado@postgres:5432/afiliado?schema=public
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
@@ -120,7 +122,7 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
       # Publicado apenas em loopback: nao ha autenticacao ainda.
-      - "0.0.0.0:${API_PORT:-3333}:3333"
+      - "${BIND_HOST:-0.0.0.0}:${API_PORT:-3333}:3333"
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,9 +175,13 @@ services:
       PORT: 3000
       # Server Components falam com a API pela rede interna do compose.
       API_BASE_URL: http://api:3333
+      # `false` permite login por HTTP na rede local (ver README > Acesso pela
+      # rede local). Mantenha `true` sempre que houver HTTPS na frente.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
     ports:
-      # Idem: sem autenticacao, o painel nao pode ficar exposto na rede.
-      - "0.0.0.0:3000:3000"
+      # Exposto na rede local de proposito, para operar de outra maquina. O
+      # painel exige login (PR-08); ainda assim, mantenha em rede confiavel.
+      - "${BIND_HOST:-0.0.0.0}:${ADMIN_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy
