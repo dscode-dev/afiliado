@@ -299,7 +299,9 @@ model MarketplaceCredential {
   refreshTokenEnc String     @db.Text
   /// Id do usuario do marketplace que autorizou, para diagnostico.
   externalUserId String?     @db.VarChar(64)
-  scope          String?     @db.VarChar(255)
+  /// Escopos concedidos, como o marketplace devolveu. Sem limite arbitrario:
+  /// quem decide o tamanho e o provedor, e o Mercado Livre ja passa de 255.
+  scope          String?     @db.Text
   authorizedAt   DateTime    @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
 

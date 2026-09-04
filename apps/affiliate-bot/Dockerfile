@@ -9,12 +9,21 @@ FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
+# CA adicional, opcional e vazia por padrao. Ver apps/api/Dockerfile para o
+# motivo (antivirus / proxy corporativo que intercepta TLS).
+ARG EXTRA_CA_CERT_B64=""
+RUN if [ -n "$EXTRA_CA_CERT_B64" ]; then \
+      mkdir -p /etc/ssl/extra && \
+      echo "$EXTRA_CA_CERT_B64" | base64 -d > /etc/ssl/extra/extra-ca.crt; \
+    fi
+
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/admin/package.json apps/admin/
 COPY apps/affiliate-bot/package.json apps/affiliate-bot/
-RUN npm ci --workspace @afiliado/affiliate-bot --include-workspace-root
+RUN NODE_EXTRA_CA_CERTS="$(ls /etc/ssl/extra/extra-ca.crt 2>/dev/null)" \
+    npm ci --workspace @afiliado/affiliate-bot --include-workspace-root
 
 FROM deps AS build
 COPY apps/affiliate-bot ./apps/affiliate-bot
@@ -28,7 +37,8 @@ COPY --from=build /app/apps/affiliate-bot/dist ./apps/affiliate-bot/dist
 COPY --from=build /app/apps/affiliate-bot/package.json ./apps/affiliate-bot/
 
 # Somente Chromium, com as bibliotecas de sistema que ele exige.
-RUN npx --yes playwright@1.62.1 install --with-deps chromium \
+RUN NODE_EXTRA_CA_CERTS="$(ls /etc/ssl/extra/extra-ca.crt 2>/dev/null)" \
+    npx --yes playwright@1.62.1 install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/* /root/.npm
 
 # O guard do `affiliate:login` precisa existir AQUI: e ele que explica que o

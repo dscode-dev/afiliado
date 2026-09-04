@@ -201,6 +201,7 @@ Serviços:
 | `migrate` | One-shot: aplica `prisma migrate deploy` e encerra | — |
 | `api` | NestJS (imagem multi-stage, sem devDependencies) | `127.0.0.1:3333` |
 | `admin` | Next.js em modo `standalone` | `127.0.0.1:3000` |
+| `tls-proxy` | nginx que termina HTTPS. **Opt-in** (`--profile tls`) — existe só porque o OAuth do Mercado Livre recusa `http` e `localhost` | `443` / `8080` |
 
 A ordem é garantida por dependências: `api` só sobe depois que `postgres` está *healthy* **e**
 `migrate` terminou com sucesso; `admin` só sobe depois que `api` está *healthy*. Isso elimina a
@@ -967,16 +968,84 @@ Ou seja: **Authorization Code é obrigatório** para tudo que o Garimpo realment
 
 ### Autorizar (uma vez)
 
+Pelo painel: **Mercado Livre** no menu lateral → *Gerar link de autorização*. A tela mostra a
+URI de redirect em uso, para você conferir contra o cadastro no ML antes de tentar.
+
+Ou pela API, se preferir o terminal:
+
 ```bash
 curl http://localhost:3333/auth/mercado-livre/authorize   # devolve a authorizationUrl
 ```
 
-Abra a URL, autorize, e o Mercado Livre redireciona para
-`https://api-garimpo.allblue-labs.com/auth/mercado-livre/callback`. O callback valida o `state`
-(uso único, comparação em tempo constante), troca o `code` por tokens e guarda o **refresh
-token**.
+Abra a URL, autorize, e o Mercado Livre redireciona para a `MELI_REDIRECT_URI` configurada. O
+callback valida o `state` (uso único, comparação em tempo constante), troca o `code` por tokens e
+guarda o **refresh token**.
 
 `GET /auth/mercado-livre/status` mostra se já está autorizado.
+
+### Autorização em ambiente local
+
+O Mercado Livre impõe duas restrições na URI de redirect que impedem o caminho óbvio:
+
+- **`http` é recusado.** Só `https`.
+- **`localhost` é recusado.**
+
+A saída é um hostname real que resolve para a própria máquina, com TLS terminado por um proxy
+local. O serviço `tls-proxy` existe para isso e é **opt-in por profile** — quem não vai autorizar
+o Mercado Livre não precisa dele nem de certificado.
+
+**1. Aponte o hostname para a máquina.** No Windows, em
+`C:\Windows\System32\drivers\etc\hosts` (precisa de elevação):
+
+```text
+192.168.1.244   api-garimpo.allblue-labs.com
+```
+
+> Confira que o arquivo termina com quebra de linha antes de acrescentar, senão a entrada nova
+> gruda na última linha e as duas param de funcionar.
+
+**2. Gere a CA local e o certificado** (SAN é obrigatório; navegador nenhum olha mais para o CN).
+Ajuste os nomes em `docker/tls/openssl.cnf` e rode:
+
+```bash
+docker run --rm --entrypoint sh -v "$PWD/docker:/work" -w /work alpine/openssl -c '
+  mkdir -p certs && cd certs
+  openssl genrsa -out garimpo-local-ca.key 2048
+  openssl req -x509 -new -nodes -key garimpo-local-ca.key -sha256 -days 3650 \
+    -subj "/CN=Garimpo Local Dev CA/O=Garimpo" -out garimpo-local-ca.crt
+  openssl genrsa -out garimpo-local.key 2048
+  openssl req -new -key garimpo-local.key -out garimpo-local.csr -config /work/tls/openssl.cnf
+  openssl x509 -req -in garimpo-local.csr -CA garimpo-local-ca.crt -CAkey garimpo-local-ca.key \
+    -CAcreateserial -out garimpo-local.crt -days 825 -sha256 \
+    -extfile /work/tls/openssl.cnf -extensions v3_req
+  rm -f garimpo-local.csr'
+```
+
+**3. Confie na CA** para o navegador não avisar (Windows, elevado):
+
+```powershell
+certutil -addstore -f Root docker\certs\garimpo-local-ca.crt
+```
+
+**4. Aponte a `MELI_REDIRECT_URI`** para o hostname e suba o proxy:
+
+```bash
+# .env
+MELI_REDIRECT_URI=https://api-garimpo.allblue-labs.com/auth/mercado-livre/callback
+TRUST_PROXY=1        # o proxy envia X-Forwarded-For/Proto; 1 salto
+
+npm run stack:up:tls
+```
+
+**5. Cadastre a mesma URI** em *Minhas aplicações* no Mercado Livre Developers. Caractere a
+caractere — qualquer diferença vira `invalid_grant`.
+
+> Se o redirect voltar para um endereço que o navegador não consegue abrir, nem tudo está
+> perdido: a barra de endereço já traz o `code`. Cole a URL inteira no passo 2 da tela
+> **Mercado Livre** do painel — quem troca o código por tokens é a API, não o navegador.
+
+O `tls-proxy` **não é a forma de publicar em produção**: lá entra um reverse proxy de verdade,
+com certificado emitido por uma CA pública. Ele resolve exclusivamente o impasse do OAuth local.
 
 O refresh token é **rotativo**: cada renovação devolve um novo e invalida o anterior, então ele
 não cabe numa environment variable. Fica em `marketplace_credentials`, **cifrado com AES-256-GCM**

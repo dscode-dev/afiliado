@@ -6,11 +6,19 @@
 FROM node:22-alpine AS base
 WORKDIR /app
 
+# CA adicional, opcional e vazia por padrao. Ver apps/api/Dockerfile para o
+# motivo (antivirus / proxy corporativo que intercepta TLS).
+ARG EXTRA_CA_CERT_B64=""
+RUN if [ -n "$EXTRA_CA_CERT_B64" ]; then \
+      mkdir -p /etc/ssl/extra && \
+      echo "$EXTRA_CA_CERT_B64" | base64 -d > /etc/ssl/extra/extra-ca.crt; \
+    fi
+
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/admin/package.json apps/admin/
-RUN npm ci
+RUN NODE_EXTRA_CA_CERTS="$(ls /etc/ssl/extra/extra-ca.crt 2>/dev/null)" npm ci
 
 FROM deps AS build
 COPY apps/admin ./apps/admin

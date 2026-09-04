@@ -26,8 +26,23 @@ async function status(): Promise<StatusResponse> {
       return { status, tag: null, detail: error.failure };
     }
 
+    // Sem este log o operador so ve `unexpected_error` no /health e nao tem
+    // como descobrir a causa. A mensagem do Playwright nao carrega segredo.
+    logError('status', error);
+
     return { status: 'UNAVAILABLE', tag: null, detail: 'unexpected_error' };
   }
+}
+
+/** Log estruturado de falha. Nunca inclui perfil, cookies ou segredo. */
+function logError(operation: string, error: unknown): void {
+  process.stderr.write(
+    JSON.stringify({
+      event: 'affiliate_bot_error',
+      operation,
+      message: error instanceof Error ? error.message.split('\n')[0] : String(error),
+    }) + '\n',
+  );
 }
 
 async function generate(url: string): Promise<GeneratedLink> {
@@ -107,6 +122,8 @@ const server = createServer((request, response) => {
 
         return json(response, code, { failure: error.failure, message: error.message });
       }
+
+      logError(`${request.method} ${url.pathname}`, error);
 
       return json(response, 502, { failure: 'UNAVAILABLE', message: 'Erro inesperado' });
     }

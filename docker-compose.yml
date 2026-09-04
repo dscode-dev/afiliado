@@ -70,6 +70,12 @@ services:
       MELI_SITE_ID: ${MELI_SITE_ID:-MLB}
       MELI_TIMEOUT_MS: ${MELI_TIMEOUT_MS:-10000}
       MELI_SYNC_CONCURRENCY: ${MELI_SYNC_CONCURRENCY:-4}
+      # Sem isto, GET /auth/mercado-livre/authorize responde 422 dentro do
+      # container: a config nao tem default para a redirect URI, e sem ela nao
+      # ha como completar o Authorization Code.
+      MELI_REDIRECT_URI: ${MELI_REDIRECT_URI:-}
+      MELI_API_BASE_URL: ${MELI_API_BASE_URL:-https://api.mercadolibre.com}
+      MELI_AUTH_BASE_URL: ${MELI_AUTH_BASE_URL:-https://auth.mercadolivre.com.br}
 
       # Opportunity Engine
       OPPORTUNITY_APPROVED_THRESHOLD: ${OPPORTUNITY_APPROVED_THRESHOLD:-85}
@@ -81,6 +87,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_TIMEOUT_MS: ${TELEGRAM_TIMEOUT_MS:-15000}
       TELEGRAM_MAX_RETRY_AFTER_SECONDS: ${TELEGRAM_MAX_RETRY_AFTER_SECONDS:-5}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
 
       # Meta / Facebook. O Page Access Token e secret: vem do .env da raiz.
       META_APP_ID: ${META_APP_ID:-}
@@ -88,6 +95,7 @@ services:
       META_PAGE_ACCESS_TOKEN: ${META_PAGE_ACCESS_TOKEN:-}
       META_API_VERSION: ${META_API_VERSION:-v21.0}
       META_TIMEOUT_MS: ${META_TIMEOUT_MS:-15000}
+      META_API_BASE_URL: ${META_API_BASE_URL:-https://graph.facebook.com}
 
       # Autopilot. Continua OPT-IN por destino: o default publica nada.
       AUTOMATION_SCHEDULER_ENABLED: ${AUTOMATION_SCHEDULER_ENABLED:-true}
@@ -165,6 +173,29 @@ services:
       - ${GARIMPO_STATE_PATH:-./.garimpo}:/garimpo
     ports:
       - "127.0.0.1:3400:3400"
+
+  # Terminacao TLS local, exigida pelo OAuth do Mercado Livre: o ML recusa
+  # `http` e recusa `localhost` na URI de redirect. O hostname resolve para
+  # esta maquina pelo arquivo hosts; ver docker/tls/nginx.conf e o README.
+  #
+  # OPT-IN por profile: quem nao precisa autorizar o Mercado Livre nao carrega
+  # o servico nem precisa gerar certificado.
+  #   docker compose --profile tls up -d
+  tls-proxy:
+    image: nginx:1.27-alpine
+    container_name: garimpo-tls-proxy
+    profiles: ["tls"]
+    restart: unless-stopped
+    volumes:
+      - ./docker/tls/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Certificado local, gerado pelo operador. Nunca versionado.
+      - ./docker/certs:/etc/nginx/certs:ro
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${TLS_PROXY_HTTPS_PORT:-443}:443"
+      - "${BIND_HOST:-0.0.0.0}:${TLS_PROXY_HTTP_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
   admin:
     build:

@@ -61,6 +61,17 @@ export const config = {
   apiOrigin: process.env.AFFILIATE_API_ORIGIN ?? 'https://www.mercadolivre.com.br',
   /** Segredo compartilhado com a API; o bot nao fica aberto na rede. */
   sharedSecret: process.env.AFFILIATE_BOT_SECRET ?? '',
+  /**
+   * Aceita certificados que o Chromium nao consegue validar.
+   *
+   * Existe para maquinas com antivirus ou proxy corporativo que interceptam
+   * TLS: eles reemitem o certificado com uma CA propria, que esta no trust
+   * store do sistema operacional mas nao no do Chromium (que usa NSS e ignora
+   * tanto o bundle do sistema quanto NODE_EXTRA_CA_CERTS).
+   *
+   * Padrao `false`. Ligue APENAS quando o interceptador for conhecido e local.
+   */
+  ignoreHttpsErrors: (process.env.AFFILIATE_BOT_IGNORE_HTTPS_ERRORS ?? 'false').toLowerCase() === 'true',
   /** Verdadeiro quando rodando dentro de um container. */
   inContainer: existsSync('/.dockerenv'),
 } as const;

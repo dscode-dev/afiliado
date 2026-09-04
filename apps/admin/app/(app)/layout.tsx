@@ -4,6 +4,7 @@ import { LogoutButton } from './logout-button';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/mercado-livre', label: 'Mercado Livre' },
   { href: '/products', label: 'Produtos' },
   { href: '/products/discover', label: 'Mais vendidos' },
   { href: '/opportunities', label: 'Oportunidades' },

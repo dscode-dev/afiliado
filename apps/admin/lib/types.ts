@@ -365,3 +365,12 @@ export interface AffiliateGenerationReport {
   authRequired: number;
   failures: { productId: string; reason: string }[];
 }
+
+export interface MercadoLivreAuthStatus {
+  /** Credenciais e chave de cifra presentes: da para iniciar a autorizacao. */
+  configured: boolean;
+  /** Ja existe refresh token guardado. */
+  authorized: boolean;
+  externalUserId: string | null;
+  redirectUri: string | null;
+}

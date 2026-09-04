@@ -15,6 +15,11 @@ out/
 *.log
 npm-debug.log*
 
+# Ajustes especificos da maquina do operador (portas em uso, CA de proxy TLS
+# local). O compose base deve continuar funcionando sozinho.
+docker-compose.override.yml
+docker/certs/
+
 # Sessao do affiliate-bot: cookies reais de uma conta. Nunca versionar.
 .garimpo/
 affiliate-session.json

@@ -1,0 +1,29 @@
+# Certificado do proxy TLS local.
+#
+# Existe porque o Mercado Livre EXIGE https na URI de redirect e recusa
+# `localhost`. O operador aponta o hostname para a maquina no arquivo hosts, e
+# este certificado e o que o navegador valida ao voltar do ML.
+#
+# O SAN e obrigatorio: navegador nenhum olha mais para o CN.
+
+[req]
+distinguished_name = dn
+req_extensions     = v3_req
+prompt             = no
+
+[dn]
+CN = api-garimpo.allblue-labs.com
+O  = Garimpo (local)
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage         = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName   = @alt_names
+
+[alt_names]
+DNS.1 = api-garimpo.allblue-labs.com
+# Fallbacks uteis para operar a mesma instancia sem o hostname.
+DNS.2 = localhost
+IP.1  = 127.0.0.1
+IP.2  = 192.168.1.244

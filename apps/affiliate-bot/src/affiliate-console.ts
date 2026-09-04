@@ -44,11 +44,13 @@ export class AffiliateConsole {
       this.context = await this.browser.newContext({
         storageState: config.sessionStatePath,
         viewport: { width: 1280, height: 800 },
+        ignoreHTTPSErrors: config.ignoreHttpsErrors,
       });
     } else {
       this.context = await chromium.launchPersistentContext(config.profilePath, {
         headless: config.headless,
         viewport: { width: 1280, height: 800 },
+        ignoreHTTPSErrors: config.ignoreHttpsErrors,
       });
     }
 
@@ -76,7 +78,20 @@ export class AffiliateConsole {
     const page = this.context.pages()[0] ?? (await this.context.newPage());
 
     if (!page.url().startsWith(config.apiOrigin)) {
-      await page.goto(config.consoleUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+      // Falha de navegacao NAO pode ser engolida: sem a origem carregada o
+      // fetch abaixo estoura com "Failed to fetch" ou "Execution context was
+      // destroyed", mensagens que nao dizem nada sobre a causa real (DNS,
+      // certificado interceptado, Central fora do ar).
+      try {
+        await page.goto(config.consoleUrl, { waitUntil: 'domcontentloaded' });
+      } catch (error) {
+        throw new AffiliateBotError(
+          'UNAVAILABLE',
+          `Nao foi possivel abrir a Central de Afiliados: ${
+            error instanceof Error ? error.message.split('\n')[0] : String(error)
+          }`,
+        );
+      }
     }
 
     return page.evaluate(

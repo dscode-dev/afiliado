@@ -8,6 +8,20 @@ FROM node:22-alpine AS base
 RUN apk add --no-cache openssl
 WORKDIR /app
 
+# CA adicional, opcional e vazia por padrao.
+#
+# Em maquinas onde um antivirus ou proxy corporativo intercepta TLS (Norton,
+# Zscaler e afins), o certificado do registry chega reemitido por uma CA que
+# so existe no trust store do sistema operacional -- e o `npm ci` morre com
+# UNABLE_TO_VERIFY_LEAF_SIGNATURE. Passe o PEM em base64 para destravar:
+#
+#   docker compose build --build-arg EXTRA_CA_CERT_B64="$(base64 -w0 ca.crt)"
+ARG EXTRA_CA_CERT_B64=""
+RUN if [ -n "$EXTRA_CA_CERT_B64" ]; then \
+      mkdir -p /etc/ssl/extra && \
+      echo "$EXTRA_CA_CERT_B64" | base64 -d > /etc/ssl/extra/extra-ca.crt; \
+    fi
+
 # ---------------------------------------------------------------------------
 # Dependencias: camada estavel, invalidada apenas quando o lockfile muda.
 # ---------------------------------------------------------------------------
@@ -16,7 +30,8 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/api/scripts apps/api/scripts/
 COPY apps/admin/package.json apps/admin/
-RUN npm ci
+# `ls` resolve para vazio quando nao ha CA extra, e o Node ignora a variavel.
+RUN NODE_EXTRA_CA_CERTS="$(ls /etc/ssl/extra/extra-ca.crt 2>/dev/null)" npm ci
 
 # ---------------------------------------------------------------------------
 # Build: gera o Prisma Client e compila o TypeScript.
@@ -47,7 +62,8 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/api/scripts apps/api/scripts/
 COPY apps/admin/package.json apps/admin/
-RUN npm ci --omit=dev --workspace @afiliado/api --include-workspace-root
+RUN NODE_EXTRA_CA_CERTS="$(ls /etc/ssl/extra/extra-ca.crt 2>/dev/null)" \
+    npm ci --omit=dev --workspace @afiliado/api --include-workspace-root
 
 # ---------------------------------------------------------------------------
 # Runtime: sem devDependencies, sem fontes TypeScript.
