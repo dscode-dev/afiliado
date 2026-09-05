@@ -1,176 +1,269 @@
+import { spawn } from 'node:child_process';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { chromium } from 'playwright';
+import { Browser, BrowserContext, chromium } from 'playwright';
+import { findInstalledBrowser } from './browser-discovery';
 import { config } from './config';
 
 /**
- * Abre um browser visivel para o operador autenticar UMA vez na Central de
- * Afiliados. A sessao fica no contexto persistente e e reaproveitada.
+ * Autentica UMA vez na Central de Afiliados e exporta a sessao.
  *
- * Nao ha tentativa de burlar MFA, captcha ou confirmacao de dispositivo: quem
- * autentica e a pessoa. Isso nao e operacao manual por produto - e uma
- * autenticacao eventual de conta, que cobre milhares de links.
+ * ESTRATEGIA: o Playwright nao abre mais o browser do login. Quem abre e o
+ * Chrome instalado da propria pessoa, iniciado como um atalho comum; o
+ * Playwright so se ANEXA depois, pela porta de depuracao, para LER os cookies.
  *
- * PRECISA rodar na maquina do operador, nunca dentro do container: abrir uma
- * janela de browser exige uma sessao grafica.
+ * Por que a mudanca. Quando o Playwright inicia o browser, ele passa
+ * `--enable-automation` (que liga `navigator.webdriver`) e usa uma build de
+ * teste do Chromium, sem os componentes proprietarios do Chrome. A Central le
+ * esses sinais e trata a sessao como automatizada -- o que acaba em
+ * verificacao repetida e, depois de algumas tentativas, bloqueio da conta.
+ * Anexar a um Chrome que ja subiu normalmente nao deixa nenhuma dessas marcas.
+ *
+ * Nada aqui tenta burlar MFA, captcha ou confirmacao de dispositivo: quem
+ * autentica e a pessoa. E uma autenticacao eventual de conta que cobre
+ * milhares de links, nao uma operacao por produto.
  */
+
+/** Cookies que so existem depois do login. Ver `docs` no README. */
+const AUTH_COOKIES = ['orguseridp', 'orgnickp', 'ssid'];
+
+/** Teto de espera pelo login humano. */
+const LOGIN_TIMEOUT_MS = 10 * 60_000;
+
+/** Intervalo da checagem LOCAL de cookies. Nao gera trafego para o ML. */
+const COOKIE_POLL_MS = 2_000;
+
 async function main(): Promise<void> {
   if (config.inContainer) {
-    process.stderr.write(
-      [
-        'Este comando abre uma janela de browser e NAO funciona dentro do container.',
-        '',
-        'Rode na sua maquina, na raiz do projeto:',
-        '',
-        '    npm run affiliate:login',
-        '',
-        'O container le o mesmo perfil por bind mount, entao a sessao vale para os dois.',
-        '',
-      ].join('\n'),
-    );
-    process.exit(1);
+    fail([
+      'Este comando abre uma janela de browser e NAO funciona dentro do container.',
+      '',
+      'Rode na sua maquina, na raiz do projeto:',
+      '',
+      '    npm run affiliate:login',
+      '',
+      'O container le a mesma sessao por bind mount.',
+    ]);
   }
 
-  mkdirSync(config.profilePath, { recursive: true });
+  const browser = resolveBrowser();
 
-  process.stdout.write(
+  mkdirSync(config.chromeProfilePath, { recursive: true });
+
+  say([
+    `Abrindo ${browser.name} para voce autenticar na Central de Afiliados.`,
+    '',
+    `  perfil : ${config.chromeProfilePath}`,
+    `  sessao : ${config.sessionStatePath}`,
+    '',
+    'Este e o seu Chrome de verdade, nao o browser de automacao. O perfil e',
+    'reaproveitado a cada login, entao a Central passa a reconhecer o mesmo',
+    'dispositivo e para de pedir verificacao a toda hora.',
+    '',
+    '1. Faca login na janela que abriu, inclusive MFA se for pedido.',
+    '2. Espere a Central de Afiliados carregar.',
+    '3. Deixe a janela aberta: eu aviso aqui quando reconhecer a sessao.',
+    '',
+  ]);
+
+  const child = launchBrowser(browser.executable);
+  let context: BrowserContext | null = null;
+  let connection: Browser | null = null;
+
+  try {
+    connection = await connectWithRetry();
+    context = connection.contexts()[0] ?? (await connection.newContext());
+
+    const tag = await waitForLogin(context);
+
+    await exportSession(context);
+
+    say([
+      '',
+      'Pronto. Sessao salva e validada.',
+      tag ? `Tag ativa: ${tag}` : 'Sessao reconhecida (tag ativa nao identificada).',
+      '',
+      'Pode fechar a janela do browser. O affiliate-bot detecta o arquivo novo',
+      'sozinho, sem precisar reiniciar o container.',
+      '',
+    ]);
+  } finally {
+    // Desanexa sem matar o browser: a janela e da pessoa, nao nossa.
+    await connection?.close().catch(() => undefined);
+    child.unref();
+  }
+}
+
+function resolveBrowser(): { name: string; executable: string } {
+  if (config.chromeExecutable) {
+    return { name: 'Chrome', executable: config.chromeExecutable };
+  }
+
+  const found = findInstalledBrowser();
+  if (found) return found;
+
+  fail([
+    'Nao encontrei Chrome nem Edge instalado nesta maquina.',
+    '',
+    'Instale o Google Chrome, ou aponte o caminho explicitamente:',
+    '',
+    '    AFFILIATE_CHROME_PATH="C:\\caminho\\para\\chrome.exe" npm run affiliate:login',
+    '',
+    'O Chromium do Playwright NAO serve aqui: e justamente ele que a Central',
+    'identifica como automatizado.',
+  ]);
+}
+
+/**
+ * Sobe o browser como um processo comum.
+ *
+ * A unica flag fora do padrao e a porta de depuracao, que nao muda o
+ * fingerprint da pagina -- diferente de `--enable-automation`, que o Playwright
+ * acrescentaria se fosse ele a iniciar o processo.
+ */
+function launchBrowser(executable: string) {
+  const child = spawn(
+    executable,
     [
-      'Abrindo a Central de Afiliados do Mercado Livre...',
-      `Perfil da sessao: ${config.profilePath}`,
-      '',
-      '1. Faca login na janela que abriu (inclusive MFA, se pedir).',
-      '2. Espere a Central carregar.',
-      '3. FECHE a janela do browser para salvar a sessao.',
-      '',
-    ].join('\n'),
+      `--remote-debugging-port=${config.loginDebugPort}`,
+      `--user-data-dir=${config.chromeProfilePath}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      config.consoleUrl,
+    ],
+    { detached: true, stdio: 'ignore' },
   );
 
-  const context = await chromium.launchPersistentContext(config.profilePath, {
-    headless: false,
-    viewport: { width: 1280, height: 900 },
+  child.on('error', (error) => {
+    fail(['Nao consegui abrir o browser.', `  ${error.message}`]);
   });
 
-  const page = context.pages()[0] ?? (await context.newPage());
-  await page.goto(config.consoleUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+  return child;
+}
 
-  // Confirma a sessao enquanto a janela ainda esta aberta.
-  let confirmed: string | null = null;
-  const poll = setInterval(() => {
-    void page
-      .evaluate(async () => {
-        const res = await fetch('/affiliate-program/api/v2/stripe/user/tags', {
-          credentials: 'include',
-        });
-        if (!res.ok) return null;
-        const body = (await res.json().catch(() => null)) as {
-          tags?: { tag?: string; in_use?: boolean; status?: string }[];
-        } | null;
-        const tags = body?.tags ?? [];
-        const active = tags.find((t) => t.in_use === true || t.status === 'in_use') ?? tags[0];
-        return active?.tag ?? null;
-      })
-      .then((tag) => {
-        if (tag && !confirmed) {
-          confirmed = tag;
-          process.stdout.write(`Sessao reconhecida. Tag ativa: ${tag}\n`);
-          process.stdout.write('Pode fechar a janela.\n');
-        }
-      })
-      .catch(() => undefined);
-  }, 4000);
+/** O Chrome leva um instante para abrir a porta de depuracao. */
+async function connectWithRetry(): Promise<Browser> {
+  const endpoint = `http://127.0.0.1:${config.loginDebugPort}`;
+  const deadline = Date.now() + 30_000;
 
-  // Exporta ANTES de fechar: depois o contexto ja nao responde.
-  let exported = false;
-  const exportSession = async (): Promise<void> => {
-    if (exported) return;
+  for (;;) {
     try {
-      mkdirSync(dirname(config.sessionStatePath), { recursive: true });
-      await context.storageState({ path: config.sessionStatePath });
-      // Contem cookies de sessao em texto claro: so o dono le.
-      chmodSync(config.sessionStatePath, 0o600);
-      exported = true;
-    } catch {
-      // Reportado abaixo, junto com o resto do resultado.
+      return await chromium.connectOverCDP(endpoint);
+    } catch (error) {
+      if (Date.now() > deadline) {
+        fail([
+          'O browser abriu, mas nao consegui me conectar a ele.',
+          `  endpoint: ${endpoint}`,
+          `  causa   : ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
+          '',
+          'Se a porta estiver ocupada, escolha outra:',
+          '',
+          '    AFFILIATE_LOGIN_DEBUG_PORT=9444 npm run affiliate:login',
+        ]);
+      }
+      await sleep(500);
     }
-  };
-
-  context.on('close', () => undefined);
-  await new Promise<void>((resolve) => {
-    const done = (): void => resolve();
-    // Exporta periodicamente enquanto a janela vive, para nao depender de
-    // conseguir falar com um contexto que ja esta fechando.
-    const keep = setInterval(() => void exportSession(), 5000);
-    context.on('close', () => {
-      clearInterval(keep);
-      done();
-    });
-  });
-  clearInterval(poll);
-
-  if (confirmed && exported) {
-    process.stdout.write(
-      [
-        '',
-        'Pronto. Sessao salva e validada.',
-        `Sessao portatil: ${config.sessionStatePath}`,
-        '',
-        'E este arquivo que o container usa: o perfil do Chromium nao atravessa',
-        'sistemas operacionais (os cookies sao cifrados com uma chave do SO).',
-        '',
-      ].join('\n'),
-    );
-    return;
   }
+}
 
-  if (confirmed && !exported) {
-    process.stderr.write(
-      [
-        '',
-        'A sessao foi reconhecida, mas nao consegui exportar o arquivo em:',
-        `  ${config.sessionStatePath}`,
-        '',
-        'Sem ele o container continuara pedindo autenticacao. Verifique a',
-        'permissao de escrita nessa pasta e rode o comando novamente.',
-        '',
-      ].join('\n'),
+/**
+ * Espera a autenticacao observando os COOKIES, nao a API.
+ *
+ * A versao anterior consultava o endpoint de tags a cada 4 segundos enquanto a
+ * janela estivesse aberta -- e continuava consultando mesmo depois de
+ * reconhecer a sessao. Isso sozinho ja rendia centenas de requisicoes por
+ * login. Ler cookies e local: custo zero para a Central.
+ *
+ * A confirmacao na API acontece UMA vez, quando os cookies de sessao aparecem.
+ */
+async function waitForLogin(context: BrowserContext): Promise<string | null> {
+  const deadline = Date.now() + LOGIN_TIMEOUT_MS;
+  let announced = false;
+
+  for (;;) {
+    const cookies = await context.cookies().catch(() => []);
+    const authenticated = cookies.some(
+      (cookie) => AUTH_COOKIES.includes(cookie.name) && cookie.domain.includes('mercadoliv'),
     );
-    process.exitCode = 1;
-    return;
-  }
 
-  process.stderr.write(
-    [
-      '',
-      'A janela fechou, mas a sessao nao foi reconhecida.',
-      'Confira se o login foi concluido e rode o comando novamente.',
-      '',
-    ].join('\n'),
-  );
-  process.exitCode = 1;
+    if (authenticated) {
+      say(['Sessao detectada. Confirmando na Central...']);
+      return await confirmTag(context);
+    }
+
+    if (!announced && cookies.length > 0) {
+      announced = true;
+      say(['Aguardando o login... (a janela do browser precisa continuar aberta)']);
+    }
+
+    if (Date.now() > deadline) {
+      fail([
+        'Passaram 10 minutos e o login nao foi concluido.',
+        '',
+        'Se voce JA esta logado e mesmo assim chegou aqui, os nomes dos cookies',
+        'de sessao do Mercado Livre podem ter mudado. Nesse caso use o import',
+        'manual, que nao depende de detectar nada:',
+        '',
+        '    npm run affiliate:import -- caminho/para/cookies.json',
+      ]);
+    }
+
+    await sleep(COOKIE_POLL_MS);
+  }
+}
+
+/** Uma unica chamada a Central, so para descobrir a tag ativa. */
+async function confirmTag(context: BrowserContext): Promise<string | null> {
+  const page = context.pages().find((p) => p.url().includes('mercadoliv')) ?? context.pages()[0];
+  if (!page) return null;
+
+  return page
+    .evaluate(async () => {
+      const response = await fetch('/affiliate-program/api/v2/stripe/user/tags', {
+        credentials: 'include',
+      });
+      if (!response.ok) return null;
+
+      const body = (await response.json().catch(() => null)) as {
+        tags?: { tag?: string; in_use?: boolean; status?: string }[];
+      } | null;
+
+      const tags = body?.tags ?? [];
+      const active = tags.find((t) => t.in_use === true || t.status === 'in_use') ?? tags[0];
+
+      return active?.tag ?? null;
+    })
+    .catch(() => null);
+}
+
+async function exportSession(context: BrowserContext): Promise<void> {
+  mkdirSync(dirname(config.sessionStatePath), { recursive: true });
+  await context.storageState({ path: config.sessionStatePath });
+
+  // Contem cookies de sessao em texto claro: so o dono le.
+  try {
+    chmodSync(config.sessionStatePath, 0o600);
+  } catch {
+    // Windows ignora o modo POSIX; a ACL do usuario ja restringe.
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function say(lines: string[]): void {
+  process.stdout.write(lines.join('\n') + '\n');
+}
+
+function fail(lines: string[]): never {
+  process.stderr.write('\n' + lines.join('\n') + '\n\n');
+  process.exit(1);
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-
-  // Erro mais provavel numa maquina recem-configurada: o Playwright esta
-  // instalado, mas o binario do Chromium ainda nao foi baixado.
-  if (/Executable doesn't exist|playwright install/i.test(message)) {
-    process.stderr.write(
-      [
-        '',
-        'O browser do Playwright ainda nao foi baixado nesta maquina.',
-        '',
-        'Rode uma vez, na raiz do projeto:',
-        '',
-        '    npx playwright install chromium',
-        '',
-        'Depois repita `npm run affiliate:login`.',
-        '',
-      ].join('\n'),
-    );
-    process.exit(1);
-  }
-
-  process.stderr.write(`Falha ao abrir a sessao: ${message}\n`);
+  process.stderr.write(
+    `\nFalha no login: ${error instanceof Error ? error.message : String(error)}\n\n`,
+  );
   process.exit(1);
 });

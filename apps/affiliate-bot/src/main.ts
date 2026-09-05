@@ -1,4 +1,5 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import { statSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { AffiliateConsole } from './affiliate-console';
 import { config } from './config';
@@ -14,7 +15,77 @@ import { AffiliateBotError, BotStatus, GeneratedLink, StatusResponse } from './t
  */
 const console_ = new AffiliateConsole();
 
+/**
+ * Cache do /status, com TTL por resultado.
+ *
+ * O /health da API consulta este endpoint, e o healthcheck do Docker chama o
+ * /health a cada 10 segundos. Sem cache, cada um desses vira uma requisicao ao
+ * endpoint de tags da Central -- ~360 por hora, indefinidamente, e o Mercado
+ * Livre passa a barrar a conta por excesso de tentativas.
+ *
+ * O TTL de falha e propositalmente LONGO: sessao expirada nao se conserta
+ * sozinha. So um login humano resolve, entao reconsultar de minuto em minuto
+ * nao descobre nada e ainda queima reputacao do IP.
+ */
+const STATUS_TTL_MS: Record<BotStatus, number> = {
+  READY: 60_000,
+  AUTH_REQUIRED: 15 * 60_000,
+  UNAVAILABLE: 5 * 60_000,
+};
+
+let cachedStatus: { value: StatusResponse; expiresAt: number } | null = null;
+let sessionFingerprint = sessionStamp();
+
+/**
+ * Assinatura do arquivo de sessao (mtime + tamanho).
+ *
+ * O login roda em OUTRO processo -- na maquina do operador, fora do container.
+ * Ele nao tem como invalidar cache nem reiniciar nada aqui; o unico sinal que
+ * atravessa essa fronteira e o proprio arquivo mudando no bind mount.
+ */
+function sessionStamp(): string {
+  try {
+    const info = statSync(config.sessionStatePath);
+    return `${info.mtimeMs}:${info.size}`;
+  } catch {
+    return 'absent';
+  }
+}
+
+/**
+ * Descarta o estado quando a sessao no disco muda.
+ *
+ * Sem isto, um login novo nao teria efeito ate o TTL vencer -- e pior, o
+ * contexto do browser continuaria carregado com os cookies ANTIGOS, entao nem
+ * a expiracao do cache resolveria: ele revalidaria a sessao velha.
+ */
+async function syncWithSessionFile(): Promise<void> {
+  const current = sessionStamp();
+  if (current === sessionFingerprint) return;
+
+  sessionFingerprint = current;
+  cachedStatus = null;
+  await console_.close();
+
+  process.stdout.write(
+    JSON.stringify({ event: 'affiliate_session_reloaded', source: 'session_file_changed' }) + '\n',
+  );
+}
+
 async function status(): Promise<StatusResponse> {
+  await syncWithSessionFile();
+
+  if (cachedStatus && cachedStatus.expiresAt > Date.now()) {
+    return cachedStatus.value;
+  }
+
+  const value = await resolveStatus();
+  cachedStatus = { value, expiresAt: Date.now() + STATUS_TTL_MS[value.status] };
+
+  return value;
+}
+
+async function resolveStatus(): Promise<StatusResponse> {
   try {
     await console_.open();
     const tag = await console_.activeTag();
@@ -46,6 +117,7 @@ function logError(operation: string, error: unknown): void {
 }
 
 async function generate(url: string): Promise<GeneratedLink> {
+  await syncWithSessionFile();
   await console_.open();
 
   return console_.generate(url);

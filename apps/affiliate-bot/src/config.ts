@@ -44,6 +44,20 @@ function defaultSessionStatePath(): string {
 }
 
 /**
+ * Perfil do Chrome REAL usado pelo login.
+ *
+ * Separado do perfil do Playwright de proposito. Ele persiste entre logins
+ * para que a Central veja sempre o mesmo dispositivo: um perfil novo a cada
+ * tentativa e exatamente o padrao que dispara verificacao extra.
+ *
+ * Tambem nao pode ser o perfil pessoal do operador -- desde o Chrome 136 a
+ * porta de depuracao e ignorada no diretorio de perfil padrao, por seguranca.
+ */
+function defaultChromeProfilePath(): string {
+  return join(stateDir(), 'chrome-login-profile');
+}
+
+/**
  * Configuracao do affiliate-bot.
  *
  * O perfil do browser guarda a sessao autenticada na Central de Afiliados.
@@ -54,6 +68,12 @@ export const config = {
   profilePath: process.env.AFFILIATE_BROWSER_PROFILE_PATH || defaultProfilePath(),
   /** Sessao portatil entre sistemas; tem precedencia sobre o perfil. */
   sessionStatePath: process.env.AFFILIATE_SESSION_STATE_PATH || defaultSessionStatePath(),
+  /** Perfil do Chrome real, usado apenas pelo `affiliate:login`. */
+  chromeProfilePath: process.env.AFFILIATE_CHROME_PROFILE_PATH || defaultChromeProfilePath(),
+  /** Caminho explicito do Chrome, quando a deteccao automatica nao acha. */
+  chromeExecutable: process.env.AFFILIATE_CHROME_PATH || '',
+  /** Porta de depuracao usada para LER a sessao do Chrome apos o login. */
+  loginDebugPort: Number(process.env.AFFILIATE_LOGIN_DEBUG_PORT ?? 9333),
   headless: (process.env.AFFILIATE_BOT_HEADLESS ?? 'true').toLowerCase() !== 'false',
   timeoutMs: Number(process.env.AFFILIATE_BOT_TIMEOUT_MS ?? 30000),
   /** Origem da Central de Afiliados; os requests sao same-origin a partir dela. */

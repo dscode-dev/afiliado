@@ -834,20 +834,69 @@ já existentes continuam funcionando — só deixam de surgir links novos.
 
 ### Sessão
 
-O bot usa um **contexto persistente do Playwright**. A sessão é do operador, autenticada **uma
-vez**:
+A sessão é do operador, autenticada **uma vez**:
 
 ```bash
-npx playwright install chromium   # uma vez por máquina
-npm run affiliate:login           # abre o browser; você entra no Mercado Livre
+npm run affiliate:login   # abre o SEU Chrome; você entra no Mercado Livre
 ```
+
+O comando grava **`.garimpo/affiliate-session.json`** — a sessão em JSON portátil
+(`storageState` do Playwright). É esse arquivo que o container usa.
 
 Funciona em Windows, macOS e Linux: o comando resolve o CLI do `tsx` pelo próprio pacote e o
 executa com o Node atual, sem depender de `node_modules/.bin` (no Windows o npm cria ali um
 `tsx` sem extensão, que só o Git Bash consegue executar).
 
-Ao fechar a janela, o login grava **`.garimpo/affiliate-session.json`** — a sessão em JSON
-portátil (`storageState` do Playwright). É esse arquivo que o container usa.
+#### Por que o login usa o Chrome instalado, e não o Playwright
+
+O Playwright **não abre** o browser do login. Quem abre é o Chrome (ou Edge) já instalado na
+máquina, iniciado como qualquer atalho; o Playwright só se **anexa** depois, pela porta de
+depuração, para ler os cookies.
+
+A diferença é o que a Central de Afiliados enxerga:
+
+| | Playwright inicia | Chrome real, Playwright anexa |
+| --- | --- | --- |
+| Build | Chromium de teste, sem componentes proprietários | Chrome de verdade |
+| `--enable-automation` | sim | não |
+| `navigator.webdriver` | `true` | `undefined` |
+| Perfil | efêmero a cada tentativa | persistente, mesmo dispositivo |
+
+Com a primeira coluna, a Central trata a sessão como automatizada: pede verificação repetida e,
+depois de algumas tentativas, **bloqueia a conta por excesso de tentativas**. Com a segunda, não
+há nenhuma dessas marcas.
+
+O perfil do login vive em `.garimpo/chrome-login-profile` e é reaproveitado — um perfil novo a
+cada login é exatamente o padrão que dispara verificação extra. Ele **não pode** ser o perfil
+pessoal do operador: desde o Chrome 136 a porta de depuração é ignorada no diretório de perfil
+padrão, por segurança.
+
+Ajustes disponíveis quando a detecção automática não serve:
+
+| Variável | Para quê |
+| -------- | -------- |
+| `AFFILIATE_CHROME_PATH` | Caminho explícito do executável |
+| `AFFILIATE_CHROME_PROFILE_PATH` | Outro diretório de perfil |
+| `AFFILIATE_LOGIN_DEBUG_PORT` | Outra porta, se a 9333 estiver ocupada |
+
+#### Import manual, quando nem isso passa
+
+Último recurso para conta já marcada ou IP em quarentena. Nenhum browser é aberto e **nenhuma
+requisição chega ao Mercado Livre**: você se autentica no navegador que já usa todo dia, onde a
+conta já é conhecida, exporta os cookies com uma extensão (Cookie-Editor) e importa:
+
+```bash
+npm run affiliate:import -- caminho/para/cookies.json
+```
+
+Aceita tanto o array puro das extensões quanto um `storageState` do Playwright, normalizando as
+diferenças que fariam o Playwright recusar o arquivo — `expirationDate` em segundos, `sameSite`
+como `no_restriction`/`unspecified`, e cookie de sessão sem expiração (que precisa virar `-1`;
+com `0` o Playwright o descarta como já expirado).
+
+O comando avisa se a exportação não trouxer nenhum cookie autenticado — sinal de que foi feita
+deslogado, ou de que a extensão filtrou os `httpOnly`, que são justamente os que importam.
+**Apague o arquivo de origem depois de importar:** ele carrega a sua sessão real.
 
 > ⚠️ **O perfil do Chromium não atravessa sistemas operacionais.** Os cookies são cifrados com
 > uma chave do SO (DPAPI no Windows, Keychain no macOS, keyring/chave fixa no Linux). Um perfil
@@ -873,6 +922,31 @@ cai, o bot responde `AUTH_REQUIRED` e o painel avisa.
 
 > Autenticar a conta de tempos em tempos **não é operação manual por produto** — que é o que este
 > PR elimina. Um login eventual cobre milhares de links.
+
+#### O `/status` é cacheado, e isso não é otimização
+
+O `/health` da API consulta o `/status` do bot, e o healthcheck do Docker chama o `/health` a
+cada 10 segundos. Sem cache, **cada um desses vira uma requisição ao endpoint de tags da
+Central** — 360 por hora, indefinidamente, sempre iguais.
+
+Com a sessão expirada isso é ainda pior: `activeTag()` só guarda o resultado em cache quando dá
+certo, então o caminho `AUTH_REQUIRED` ia à rede *toda vez*. Uma stack esquecida ligada por uma
+noite rende milhares de tentativas falhas do mesmo IP contra o mesmo endpoint — que é exatamente
+o padrão que faz o Mercado Livre bloquear a conta por excesso de tentativas, e aí nem o login
+manual passa mais.
+
+O TTL varia com o resultado, e o de falha é o mais longo de propósito:
+
+| Resultado | TTL | Por quê |
+| --------- | --: | ------- |
+| `READY` | 1 min | Sessão viva pode cair; vale reconferir |
+| `UNAVAILABLE` | 5 min | Indisponibilidade costuma ser passageira |
+| `AUTH_REQUIRED` | 15 min | Sessão expirada **não se conserta sozinha** — só um login humano resolve |
+
+O bot também observa o `mtime` do arquivo de sessão. Quando o login grava um arquivo novo, ele
+descarta o cache **e fecha o contexto do browser** — sem isso o contexto seguiria carregado com
+os cookies antigos, e nem a expiração do cache adiantaria: ele revalidaria a sessão velha. Por
+isso um login novo passa a valer sem reiniciar o container.
 
 O perfil do browser guarda cookies reais da conta:
 

@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "login": "node scripts/login-entry.mjs",
+    "affiliate:import": "node scripts/import-entry.mjs",
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "affiliate:login": "node scripts/login-entry.mjs"
